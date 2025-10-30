@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=SqlDeveloperWin
+Exec=cd "/home/myasnikovia/BarsNG/Bars_08-08-2024/Soft_WinE/ABBYY Screenshot Reader - Portable/" && wine ScreenshotReader.exe
+Type=Application
+#Terminal=false
+StartupNotify=true
+Icon=/home/myasnikovia/BarsNG/Bars_08-08-2024/Soft_WinE/ABBYY Screenshot Reader - Portable/icon.png
+StartupWMClass=phpstorm64.exe
+

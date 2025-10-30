@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=ScreenshotReader
+Exec=cd '/home/myasnikovia/Linux_Save/ABBYY Screenshot Reader - Portable/' && wine ScreenshotReader.exe
+Type=Application
+Terminal=false
+StartupNotify=true
+Icon=/home/myasnikovia/Linux_Save/ABBYY Screenshot Reader - Portable/icon.png
+StartupWMClass=GitExtensions.exe
+

@@ -1,0 +1,183 @@
+let isActive = false;
+let isTextMode = false;
+let highlightedElements = [];
+
+function highlightBlocks() {
+    const allElements = document.querySelectorAll('*:not(html):not(head):not(body):not(script):not(style)');
+    
+    allElements.forEach(element => {
+        if (element.offsetWidth > 0 && element.offsetHeight > 0) {
+            const originalStyle = element.getAttribute('data-original-style') || '';
+            element.setAttribute('data-original-style', originalStyle);
+            
+            const currentStyle = element.style.cssText;
+            element.style.cssText = currentStyle + 'outline: 1px solid red !important; cursor: pointer !important;';
+            highlightedElements.push(element);
+            element.addEventListener('click', handleBlockClick);
+        }
+    });
+}
+
+function removeHighlights() {
+    highlightedElements.forEach(element => {
+        //const originalStyle = element.getAttribute('data-original-style');
+        //if (originalStyle) {
+        //    element.style.cssText = originalStyle;
+        //} else {
+        //    element.style.cssText = '';
+        // }
+        element.removeEventListener('click', handleBlockClick);
+    });
+    
+    highlightedElements = [];
+}
+
+function handleBlockClick(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    let content;
+    if (isTextMode) {
+        content = convertToText(this);
+    } else {
+        content = this.outerHTML;
+    }
+    
+    navigator.clipboard.writeText(content).then(() => {
+        showCopiedNotification();
+        // Снимаем выделение после копирования
+        removeHighlights();
+        isActive = false;
+    }).catch(err => {
+        console.error('Ошибка копирования:', err);
+    });
+}
+
+
+function convertToText_v2(element) {
+    // Создаем клон элемента для преобразования
+    const clone = element.cloneNode(true);
+    
+    // Удаляем все скрытые элементы
+    const hiddenElements = clone.querySelectorAll('[style*="display:none"], [style*="display: none"], [hidden]');
+    hiddenElements.forEach(el => el.remove());
+    
+    // Используем textContent для получения всего текста с сохранением структуры
+    let text = clone.textContent || '';
+    
+    // Очищаем текст (аналогично app.py)
+    const lines = text.split('\n');
+    const cleanedLines = [];
+    
+    for (let line of lines) {
+        const cleanedLine = line.replace(/\s+/g, ' ').trim();
+        if (cleanedLine) {
+            cleanedLines.push(cleanedLine);
+        }
+    }
+    
+    text = cleanedLines.join('\n');
+    
+    // Добавляем информацию о теге
+    const tagName = element.tagName.toLowerCase();
+    return `[${tagName.toUpperCase()}]:\n${text}`;
+}
+
+function convertToText(element) {
+    // Создаем клон элемента для преобразования
+    const clone = element.cloneNode(true);
+    
+    // Удаляем все скрытые элементы
+    const hiddenElements = clone.querySelectorAll('[style*="display:none"], [style*="display: none"], [hidden]');
+    hiddenElements.forEach(el => el.remove());
+    
+    // Временный контейнер для обработки HTML
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = clone.innerHTML;
+    
+    // Заменяем HTML entities (аналогично app.py)
+    let text = tempDiv.innerHTML;
+    text = text.replace(/&nbsp;/g, ' ')
+               .replace(/&amp;/g, '&')
+               .replace(/&lt;/g, '<')
+               .replace(/&gt;/g, '>');
+    
+    // Сохраняем переносы для определенных тегов (аналогично app.py)
+    text = text.replace(/<\/(div|p|br|h[1-6]|ul|ol|li|tr)[^>]*>/gi, '\n')
+               .replace(/<(br|hr)[^>]*>/gi, '\n');
+    
+    // Удаляем все остальные HTML теги
+    text = text.replace(/<[^>]+>/g, '');
+    
+    // Восстанавливаем структуру текста (аналогично app.py)
+    const lines = text.split('\n');
+    const cleanedLines = [];
+    
+    for (let line of lines) {
+        // Очищаем каждую строку от лишних пробелов
+        const cleanedLine = line.replace(/\s+/g, ' ').trim();
+        if (cleanedLine) {  // Добавляем только непустые строки
+            cleanedLines.push(cleanedLine);
+        }
+    }
+    
+    // Объединяем обратно с переносами строк
+    text = cleanedLines.join('\n');
+    
+    // Добавляем информацию о теге
+    const tagName = element.tagName.toLowerCase();
+    return `[${tagName.toUpperCase()}]:\n${text}`;
+}
+
+function showCopiedNotification() {
+    const notification = document.createElement('div');
+    notification.textContent = isTextMode 
+        ? 'Текст блока скопирован в буфер обмена!' 
+        : 'HTML скопирован в буфер обмена!';
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: green;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 5px;
+        z-index: 999999;
+        font-family: Arial, sans-serif;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        if (document.body.contains(notification)) {
+            document.body.removeChild(notification);
+        }
+    }, 2000);
+}
+
+// Обработчик сообщений
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "toggleBlocks") {
+        if (isActive) {
+            removeHighlights();
+            isActive = false;
+            isTextMode = false;
+        } else {
+            highlightBlocks();
+            isActive = true;
+            isTextMode = false;
+        }
+    }
+    
+    if (request.action === "toggleTextBlocks") {
+        if (isActive) {
+            removeHighlights();
+            isActive = false;
+            isTextMode = false;
+        } else {
+            highlightBlocks();
+            isActive = true;
+            isTextMode = true;
+        }
+    }
+});
