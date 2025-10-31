@@ -1,0 +1,23 @@
+Для того, чтобы переключение раскладки клавиатуры сделать через кнопку "CapsLock"
+необходимо:
+1) установить программу AutoHotkey_2.0.19_setup.exe
+
+2) Скрипт CapsLock_Layout_Switch.ahk скопировать в актозапуск пользователя:
+C:\Users\Myasnikov\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup
+
+
+--------------------------------------------------------------------------------------
+
+текст скрипта CapsLock_Layout_Switch.ahk:
+```
+; Перехват Caps Lock для смены раскладки (Alt+Shift)
+CapsLock::
+    Send, {Alt down}{Shift down}
+    Sleep 50  ; Короткая задержка для имитации нажатия
+    Send, {Shift up}{Alt up}
+return
+
+; Отключение стандартного действия Caps Lock
+SetCapsLockState, AlwaysOff
+```
+--------------------------------------------------------------------------------------
