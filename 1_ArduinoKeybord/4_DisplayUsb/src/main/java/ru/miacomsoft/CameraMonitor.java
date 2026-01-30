@@ -33,11 +33,16 @@ public class CameraMonitor extends JFrame {
     private BufferedImage currentImage;
     private Dimension originalImageSize;
 
+    private int cameraIndex = 0;
+
     public CameraMonitor() {
         setTitle("Camera Monitor");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1200, 800);
         setLocationRelativeTo(null);
+
+        // Сначала показываем диалог выбора камеры
+        showCameraSelectionDialog();
 
         initComponents();
         initCamera();
@@ -46,19 +51,70 @@ public class CameraMonitor extends JFrame {
         setVisible(true);
     }
 
+    private void showCameraSelectionDialog() {
+        // Проверяем доступные камеры
+        int maxCamerasToCheck = 10;
+        java.util.List<Integer> availableCameras = new java.util.ArrayList<>();
+
+        for (int i = 0; i < maxCamerasToCheck; i++) {
+            try {
+                OpenCVFrameGrabber testGrabber = new OpenCVFrameGrabber(i);
+                testGrabber.start();
+                Frame testFrame = testGrabber.grab();
+                if (testFrame != null) {
+                    availableCameras.add(i);
+                }
+                testGrabber.stop();
+                testGrabber.release();
+            } catch (Exception e) {
+                // Камера не доступна, продолжаем проверку
+            }
+        }
+
+        if (availableCameras.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Не найдено доступных камер!\nПроверьте подключение камеры и перезапустите программу.",
+                    "Ошибка",
+                    JOptionPane.ERROR_MESSAGE);
+            System.exit(1);
+        } else if (availableCameras.size() == 1) {
+            cameraIndex = availableCameras.get(0);
+            JOptionPane.showMessageDialog(this,
+                    "Найдена камера на индексе: " + cameraIndex,
+                    "Информация",
+                    JOptionPane.INFORMATION_MESSAGE);
+        } else {
+            // Пользователь выбирает камеру
+            Object[] options = availableCameras.toArray();
+            Object selected = JOptionPane.showInputDialog(this,
+                    "Выберите камеру:",
+                    "Выбор камеры",
+                    JOptionPane.QUESTION_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
+
+            if (selected != null) {
+                cameraIndex = (Integer) selected;
+            } else {
+                System.exit(0);
+            }
+        }
+    }
+
     private void initComponents() {
+        // ... существующий код без изменений ...
         imageLabel = new JLabel();
         imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
         JScrollPane scrollPane = new JScrollPane(imageLabel);
         add(scrollPane, BorderLayout.CENTER);
 
-        // Панель с информацией
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         infoPanel.add(new JLabel("Управление: '+' - контрастность, '-' - контрастность, 'a' - яркость, 'z' - яркость, 'Ctrl+Z' - фильтры, 'q' - выход"));
         add(infoPanel, BorderLayout.SOUTH);
 
-        // Обработчик мыши для выделения области
+        // ... остальной код без изменений ...
         imageLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -88,7 +144,6 @@ public class CameraMonitor extends JFrame {
             }
         });
 
-        // Обработчик изменения размера окна
         addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
@@ -99,23 +154,30 @@ public class CameraMonitor extends JFrame {
 
     private void initCamera() {
         try {
-            grabber = new OpenCVFrameGrabber(0);
+            grabber = new OpenCVFrameGrabber(cameraIndex); // Используем выбранный индекс
             grabber.setImageWidth(1920);
             grabber.setImageHeight(820);
             grabber.start();
 
-            // Таймер для обновления кадров
             timer = new Timer(33, e -> updateFrame());
             timer.start();
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Не удалось открыть камеру: " + e.getMessage());
+            JOptionPane.showMessageDialog(this,
+                    "Не удалось открыть камеру " + cameraIndex + ": " + e.getMessage() +
+                            "\nПопробуйте перезапустить программу с другим индексом камеры.",
+                    "Ошибка",
+                    JOptionPane.ERROR_MESSAGE);
             System.exit(1);
         }
     }
 
+    // ... остальные методы без изменений ...
     private void initKeyBindings() {
         InputMap inputMap = imageLabel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         ActionMap actionMap = imageLabel.getActionMap();
+
+        // Добавляем клавишу для переключения камеры
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, KeyEvent.CTRL_DOWN_MASK), "switchCamera");
 
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_Q, 0), "exit");
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_PLUS, 0), "increaseContrast");
@@ -125,6 +187,13 @@ public class CameraMonitor extends JFrame {
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, 0), "decreaseBrightness");
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, KeyEvent.CTRL_DOWN_MASK), "toggleFilters");
 
+        actionMap.put("switchCamera", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                switchCamera();
+            }
+        });
+
         actionMap.put("exit", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -132,6 +201,7 @@ public class CameraMonitor extends JFrame {
             }
         });
 
+        // ... остальные actionMap без изменений ...
         actionMap.put("increaseContrast", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -173,11 +243,27 @@ public class CameraMonitor extends JFrame {
         });
     }
 
+    private void switchCamera() {
+        if (timer != null) {
+            timer.stop();
+        }
+        if (grabber != null) {
+            try {
+                grabber.stop();
+                grabber.release();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        cameraIndex = (cameraIndex + 1) % 10; // Перебираем индексы 0-9
+        initCamera();
+    }
+
     private void updateFrame() {
         try {
             Frame frame = grabber.grab();
             if (frame != null) {
-                // Конвертируем Frame в BufferedImage
                 Java2DFrameConverter converter = new Java2DFrameConverter();
                 BufferedImage originalImage = converter.getBufferedImage(frame);
 
@@ -188,7 +274,6 @@ public class CameraMonitor extends JFrame {
                     processedImage = originalImage;
                 }
 
-                // Сохраняем оригинальный размер изображения
                 if (originalImageSize == null) {
                     originalImageSize = new Dimension(processedImage.getWidth(), processedImage.getHeight());
                 }
@@ -201,11 +286,11 @@ public class CameraMonitor extends JFrame {
         }
     }
 
+    // ... остальные методы без изменений ...
     private void updateImageDisplay() {
         if (currentImage != null) {
             BufferedImage displayImage = currentImage;
 
-            // Если есть выделенная область, рисуем её
             if (selecting && startPoint != null && currentPoint != null) {
                 displayImage = new BufferedImage(currentImage.getWidth(), currentImage.getHeight(), currentImage.getType());
                 Graphics2D g2d = displayImage.createGraphics();
@@ -220,7 +305,6 @@ public class CameraMonitor extends JFrame {
                 g2d.dispose();
             }
 
-            // Масштабируем изображение под размер компонента
             Dimension labelSize = imageLabel.getSize();
             if (labelSize.width > 0 && labelSize.height > 0) {
                 Image scaledImage = displayImage.getScaledInstance(
@@ -236,20 +320,16 @@ public class CameraMonitor extends JFrame {
     }
 
     private BufferedImage applyFilters(BufferedImage image) {
-        // Конвертируем BufferedImage в Mat
         OpenCVFrameConverter.ToMat converter = new OpenCVFrameConverter.ToMat();
         Frame frame = new Java2DFrameConverter().convert(image);
         Mat mat = converter.convert(frame);
 
-        // Конвертируем в grayscale
         Mat gray = new Mat();
         opencv_imgproc.cvtColor(mat, gray, opencv_imgproc.COLOR_BGR2GRAY);
 
-        // Применяем контрастность и яркость
         Mat contrasted = new Mat();
         gray.convertTo(contrasted, -1, alpha, beta);
 
-        // Конвертируем обратно в BufferedImage
         Frame processedFrame = converter.convert(contrasted);
         return new Java2DFrameConverter().getBufferedImage(processedFrame);
     }
@@ -257,7 +337,6 @@ public class CameraMonitor extends JFrame {
     private void captureSelectedArea() {
         if (startPoint == null || currentPoint == null || currentImage == null) return;
 
-        // Масштабируем координаты обратно к оригинальному размеру изображения
         double scaleX = (double) originalImageSize.width / imageLabel.getWidth();
         double scaleY = (double) originalImageSize.height / imageLabel.getHeight();
 
@@ -266,16 +345,10 @@ public class CameraMonitor extends JFrame {
         int width = (int) (Math.abs(currentPoint.x - startPoint.x) * scaleX);
         int height = (int) (Math.abs(currentPoint.y - startPoint.y) * scaleY);
 
-        if (width > 10 && height > 10) { // Минимальный размер области
+        if (width > 10 && height > 10) {
             try {
-                // Вырезаем выделенную область из оригинального изображения
                 BufferedImage selectedArea = currentImage.getSubimage(x, y, width, height);
-
-                // Помещаем в буфер обмена
                 setClipboard(selectedArea);
-
-                //
-                // JOptionPane.showMessageDialog(this,"Область скопирована в буфер обмена!\nРазмер: " + width + "x" + height);
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(this, "Ошибка при захвате области: " + e.getMessage());
             }
@@ -307,8 +380,8 @@ public class CameraMonitor extends JFrame {
     }
 
     private void updateStatus() {
-        setTitle(String.format("Camera Monitor - Контраст: %.1f, Яркость: %.0f, Фильтры: %s",
-                alpha, beta, filtersEnabled ? "ВКЛ" : "ВЫКЛ"));
+        setTitle(String.format("Camera Monitor (Камера %d) - Контраст: %.1f, Яркость: %.0f, Фильтры: %s",
+                cameraIndex, alpha, beta, filtersEnabled ? "ВКЛ" : "ВЫКЛ"));
     }
 
     @Override

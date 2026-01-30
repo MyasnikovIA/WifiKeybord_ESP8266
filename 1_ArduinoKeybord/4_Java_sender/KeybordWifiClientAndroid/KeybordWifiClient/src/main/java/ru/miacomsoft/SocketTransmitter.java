@@ -21,6 +21,7 @@ public class SocketTransmitter extends JFrame {
     private JButton sendCustomButton;
     private JLabel lineNumberLabel;
     private JLabel statusLabel;
+    private JCheckBox ideCheckBox; // Новый чекбокс
 
     private Socket socket;
     private OutputStream outputStream;
@@ -69,6 +70,9 @@ public class SocketTransmitter extends JFrame {
         lineNumberLabel = new JLabel("Строка: 0");
         statusLabel = new JLabel("Не подключено");
 
+        // Чекбокс IDE
+        ideCheckBox = new JCheckBox("IDE");
+
         // Обработчики кнопок
         pauseButton.addActionListener(e -> togglePause());
         stopButton.addActionListener(e -> stopTransmission());
@@ -91,6 +95,7 @@ public class SocketTransmitter extends JFrame {
         connectionPanel.add(statusLabel);
         connectionPanel.add(testButton);
         connectionPanel.add(sendCustomButton);
+        connectionPanel.add(ideCheckBox); // Добавляем чекбокс
 
         // Панель с кнопками
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
@@ -177,14 +182,8 @@ public class SocketTransmitter extends JFrame {
 
     private void sendTestByte() {
         try {
-            // for (int i = 130;i<160;i++) {
-            //     sendByte(i);
-            //     System.out.println(i);
-            //     Thread.sleep(500);
-            // }
-            //sendByte(231);
             sendByte(210);
-            JOptionPane.showMessageDialog(this, "Тестовый байт (231) отправлен!");
+            JOptionPane.showMessageDialog(this, "Тестовый байт (210) отправлен!");
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this,
                     "Ошибка отправки тестового байта: " + ex.getMessage());
@@ -204,26 +203,59 @@ public class SocketTransmitter extends JFrame {
         try {
             // Отправляем текст посимвольно
             for (char c : text.toCharArray()) {
-                boolean isRussian = isCyrillic(c);
-                if (isRussian) {
-                    if (isEnglish) {
-                        isEnglish = false;
-                        Thread.sleep(200);
-                        sendByte(134); // CapsLock
-                        Thread.sleep(200);
+                // Обработка IDE режима для символа {
+                if (ideCheckBox.isSelected() && isSpecialCharacterForIDE(c)) {
+                    // Отправляем символ {
+                    boolean isRussian = isCyrillic(c);
+                    if (isRussian) {
+                        if (isEnglish) {
+                            isEnglish = false;
+                            Thread.sleep(200);
+                            sendByte(134); // CapsLock
+                            Thread.sleep(200);
+                        }
+                        if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
+                            int symb = KEY_CODES_RUS.get(String.valueOf(c));
+                            sendByte(symb);
+                        }
+                    } else {
+                        if (!isEnglish) {
+                            isEnglish = true;
+                            Thread.sleep(200);
+                            sendByte(134); // CapsLock
+                            Thread.sleep(200);
+                        }
+                        sendByte(c);
                     }
-                    if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
-                        int symb = KEY_CODES_RUS.get(String.valueOf(c));
-                        sendByte(symb);
-                    }
+
+                    // Ждем 0.3 секунды
+                    Thread.sleep(300);
+
+                    // Отправляем кнопку Del (код 212 из KeyCodes.java)
+                    sendByte(212);
                 } else {
-                    if (!isEnglish) {
-                        isEnglish = true;
-                        Thread.sleep(200);
-                        sendByte(134); // CapsLock
-                        Thread.sleep(200);
+                    // Стандартная обработка символа
+                    boolean isRussian = isCyrillic(c);
+                    if (isRussian) {
+                        if (isEnglish) {
+                            isEnglish = false;
+                            Thread.sleep(200);
+                            sendByte(134); // CapsLock
+                            Thread.sleep(200);
+                        }
+                        if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
+                            int symb = KEY_CODES_RUS.get(String.valueOf(c));
+                            sendByte(symb);
+                        }
+                    } else {
+                        if (!isEnglish) {
+                            isEnglish = true;
+                            Thread.sleep(200);
+                            sendByte(134); // CapsLock
+                            Thread.sleep(200);
+                        }
+                        sendByte(c);
                     }
-                    sendByte(c);
                 }
                 Thread.sleep(100);
             }
@@ -404,7 +436,14 @@ public class SocketTransmitter extends JFrame {
 
         transmissionThread.start();
     }
-
+    private boolean isSpecialCharacterForIDE(char c) {
+        // Расширенный список символов, после которых нужно нажать Del
+        return c == '{' ||
+                c == '\"' || // двойная кавычка
+                c == '\'' || // одинарная кавычка
+                c == '[' ||  // открывающая квадратная скобка
+                c == '(';    // открывающая круглая скобка
+    }
     private void transmitMessage(String message) throws InterruptedException, IOException {
         message = message.replaceAll("[\\p{C}&&[^\n]]", "");
 
@@ -437,31 +476,64 @@ public class SocketTransmitter extends JFrame {
                 SwingUtilities.invokeLater(() -> lineNumberLabel.setText("Строка: " + finalLineNum1 + " из " + lines.length));
             }
 
-            boolean isRussian = isCyrillic(c);
-            if (isRussian) {
-                if (isEnglish) {
-                    isEnglish = false;
-                    Thread.sleep(200);
-                    sendByte(134);
-                    Thread.sleep(200);
+            // Обработка IDE режима для символа {
+            if (ideCheckBox.isSelected() && isSpecialCharacterForIDE(c)) {
+                // Отправляем символ {
+                boolean isRussian = isCyrillic(c);
+                if (isRussian) {
+                    if (isEnglish) {
+                        isEnglish = false;
+                        Thread.sleep(200);
+                        sendByte(134);
+                        Thread.sleep(200);
+                    }
+                    if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
+                        int symb = KEY_CODES_RUS.get(String.valueOf(c));
+                        sendByte(symb);
+                    }
+                } else {
+                    if (!isEnglish) {
+                        isEnglish = true;
+                        Thread.sleep(200);
+                        sendByte(134);
+                        Thread.sleep(200);
+                    }
+                    sendByte(c);
                 }
-                if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
-                    int symb = KEY_CODES_RUS.get(String.valueOf(c));
-                    sendByte(symb);
-                }
+
+                // Ждем 0.3 секунды
+                Thread.sleep(300);
+
+                // Отправляем кнопку Del (код 212 из KeyCodes.java)
+                sendByte(212);
+                Thread.sleep(300);
             } else {
-                if (!isEnglish) {
-                    isEnglish = true;
-                    Thread.sleep(200);
-                    sendByte(134);
-                    Thread.sleep(200);
+                // Стандартная обработка символа
+                boolean isRussian = isCyrillic(c);
+                if (isRussian) {
+                    if (isEnglish) {
+                        isEnglish = false;
+                        Thread.sleep(200);
+                        sendByte(134);
+                        Thread.sleep(200);
+                    }
+                    if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
+                        int symb = KEY_CODES_RUS.get(String.valueOf(c));
+                        sendByte(symb);
+                    }
+                } else {
+                    if (!isEnglish) {
+                        isEnglish = true;
+                        Thread.sleep(200);
+                        sendByte(134);
+                        Thread.sleep(200);
+                    }
+                    sendByte(c);
                 }
-                sendByte(c);
             }
 
             if (c == 10) { // Home
                 Thread.sleep(300);
-                // sendByte(231);
                 sendByte(210); // Hom
                 Thread.sleep(300);
             }
@@ -501,6 +573,7 @@ public class SocketTransmitter extends JFrame {
         hostTextField.setEnabled(!connected);
         portTextField.setEnabled(!connected);
         messageTextArea.setEnabled(connected && !transmissionRunning);
+        ideCheckBox.setEnabled(connected && !transmissionRunning);
     }
 
     private void sendByte(int value) throws IOException {
