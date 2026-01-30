@@ -491,7 +491,8 @@ public class SocketTransmitter extends JFrame {
 
     private void transmitMessage(String message) throws InterruptedException, IOException {
         message = message.replaceAll("[\\p{C}&&[^\n]]", "");
-
+        // message = message.replaceAll("(?m)^\\s*$\\R?", ""); // удалить  все пустые строки
+        message = message.replaceAll("(?m)^[ \\t]+$", ""); // заменить пустые строки на переход на новую строку
         String[] lines = message.split("\n");
         int finalLineNum = 1;
         SwingUtilities.invokeLater(() -> lineNumberLabel.setText("Строка: 1 из " + lines.length));
