@@ -17,6 +17,8 @@ public class SocketTransmitter extends JFrame {
     private JButton stopButton;
     private JButton startButton;
     private JButton connectButton;
+    private JButton testButton;
+    private JButton sendCustomButton;
     private JLabel lineNumberLabel;
     private JLabel statusLabel;
 
@@ -47,6 +49,12 @@ public class SocketTransmitter extends JFrame {
 
         connectButton = new JButton("Подключить");
         connectButton.addActionListener(e -> toggleConnection());
+
+        testButton = new JButton("test");
+        testButton.addActionListener(e -> toggleTest());
+
+        sendCustomButton = new JButton("Отправить кастом");
+        sendCustomButton.addActionListener(e -> sendCustomData());
 
         // Текстовое поле для сообщения
         messageTextArea = new JTextArea();
@@ -81,6 +89,8 @@ public class SocketTransmitter extends JFrame {
         connectionPanel.add(portTextField);
         connectionPanel.add(connectButton);
         connectionPanel.add(statusLabel);
+        connectionPanel.add(testButton);
+        connectionPanel.add(sendCustomButton);
 
         // Панель с кнопками
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
@@ -104,6 +114,225 @@ public class SocketTransmitter extends JFrame {
         } else {
             connect();
         }
+    }
+
+    private void toggleTest() {
+        if (isConnected.get()) {
+            // Отправляем тестовый байт
+            sendTestByte();
+        }
+    }
+
+    private void sendCustomData() {
+        if (!isConnected.get()) {
+            JOptionPane.showMessageDialog(this, "Сначала подключитесь к серверу!");
+            return;
+        }
+
+        // Создаем диалоговое окно для ввода кастомных данных
+        JPanel panel = new JPanel(new GridLayout(0, 1));
+
+        JRadioButton textRadio = new JRadioButton("Текст", true);
+        JRadioButton bytesRadio = new JRadioButton("Байты (разделенные пробелами)");
+        ButtonGroup group = new ButtonGroup();
+        group.add(textRadio);
+        group.add(bytesRadio);
+
+        JTextArea inputArea = new JTextArea(5, 30);
+        inputArea.setLineWrap(true);
+        inputArea.setWrapStyleWord(true);
+
+        panel.add(new JLabel("Выберите тип данных:"));
+        panel.add(textRadio);
+        panel.add(bytesRadio);
+        panel.add(new JLabel("Введите данные:"));
+        panel.add(new JScrollPane(inputArea));
+
+        int result = JOptionPane.showConfirmDialog(this, panel,
+                "Отправить кастомные данные", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            String input = inputArea.getText().trim();
+            if (!input.isEmpty()) {
+                new Thread(() -> {
+                    try {
+                        if (textRadio.isSelected()) {
+                            // Отправляем как текст
+                            sendCustomText(input);
+                        } else {
+                            // Отправляем как байты
+                            sendCustomBytes(input);
+                        }
+                        JOptionPane.showMessageDialog(this, "Данные успешно отправлены!");
+                    } catch (Exception ex) {
+                        SwingUtilities.invokeLater(() ->
+                                JOptionPane.showMessageDialog(this,
+                                        "Ошибка отправки: " + ex.getMessage(),
+                                        "Ошибка", JOptionPane.ERROR_MESSAGE));
+                    }
+                }).start();
+            }
+        }
+    }
+
+    private void sendTestByte() {
+        try {
+            // for (int i = 130;i<160;i++) {
+            //     sendByte(i);
+            //     System.out.println(i);
+            //     Thread.sleep(500);
+            // }
+            //sendByte(231);
+            sendByte(210);
+            JOptionPane.showMessageDialog(this, "Тестовый байт (231) отправлен!");
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                    "Ошибка отправки тестового байта: " + ex.getMessage());
+        }
+    }
+
+    // Публичный метод для отправки произвольного текста
+    public void sendCustomText(String text) throws IOException, InterruptedException {
+        if (!isConnected.get()) {
+            throw new IllegalStateException("Не подключено к серверу");
+        }
+
+        // Сохраняем текущее состояние
+        boolean wasEnglish = isEnglish;
+        isEnglish = true; // Начинаем с английской раскладки
+
+        try {
+            // Отправляем текст посимвольно
+            for (char c : text.toCharArray()) {
+                boolean isRussian = isCyrillic(c);
+                if (isRussian) {
+                    if (isEnglish) {
+                        isEnglish = false;
+                        Thread.sleep(200);
+                        sendByte(134); // CapsLock
+                        Thread.sleep(200);
+                    }
+                    if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
+                        int symb = KEY_CODES_RUS.get(String.valueOf(c));
+                        sendByte(symb);
+                    }
+                } else {
+                    if (!isEnglish) {
+                        isEnglish = true;
+                        Thread.sleep(200);
+                        sendByte(134); // CapsLock
+                        Thread.sleep(200);
+                    }
+                    sendByte(c);
+                }
+                Thread.sleep(100);
+            }
+
+            // Возвращаем раскладку, если нужно
+            if (!isEnglish && wasEnglish) {
+                Thread.sleep(200);
+                sendByte(134); // CapsLock
+                Thread.sleep(200);
+            }
+
+            // Восстанавливаем состояние
+            isEnglish = wasEnglish;
+
+        } catch (Exception e) {
+            // Восстанавливаем состояние при ошибке
+            isEnglish = wasEnglish;
+            throw e;
+        }
+    }
+
+    // Публичный метод для отправки произвольных байт
+    public void sendCustomBytes(String byteString) throws IOException, InterruptedException {
+        if (!isConnected.get()) {
+            throw new IllegalStateException("Не подключено к серверу");
+        }
+
+        String[] byteStrings = byteString.split("\\s+");
+        for (String str : byteStrings) {
+            try {
+                int value = Integer.parseInt(str.trim());
+                if (value < 0 || value > 255) {
+                    throw new IllegalArgumentException("Байт должен быть в диапазоне 0-255: " + value);
+                }
+                sendByte(value);
+                Thread.sleep(100);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Неверный формат байта: " + str);
+            }
+        }
+    }
+
+    // Публичный метод для отправки массива байт
+    public void sendCustomBytes(byte[] bytes) throws IOException, InterruptedException {
+        if (!isConnected.get()) {
+            throw new IllegalStateException("Не подключено к серверу");
+        }
+
+        for (byte b : bytes) {
+            sendByte(b & 0xFF); // Преобразуем в беззнаковый
+            Thread.sleep(100);
+        }
+    }
+
+    // Публичный метод для отправки одиночного байта
+    public void sendSingleByte(int value) throws IOException {
+        if (!isConnected.get()) {
+            throw new IllegalStateException("Не подключено к серверу");
+        }
+        sendByte(value);
+    }
+
+    // Публичный метод для получения состояния подключения
+    public boolean isConnected() {
+        return isConnected.get();
+    }
+
+    // Публичный метод для принудительного подключения/отключения
+    public void connect(String host, int port) throws IOException {
+        if (isConnected.get()) {
+            disconnect();
+        }
+
+        socket = new Socket(host, port);
+        outputStream = socket.getOutputStream();
+        isConnected.set(true);
+
+        SwingUtilities.invokeLater(() -> {
+            statusLabel.setText("Подключено");
+            connectButton.setText("Отключить");
+            updateButtonStates(true, false);
+        });
+    }
+
+    public void disconnect() {
+        isConnected.set(false);
+        isStopped.set(true);
+
+        if (transmissionThread != null && transmissionThread.isAlive()) {
+            transmissionThread.interrupt();
+        }
+
+        try {
+            if (outputStream != null) {
+                outputStream.close();
+            }
+            if (socket != null) {
+                socket.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            statusLabel.setText("Не подключено");
+            connectButton.setText("Подключить");
+            updateButtonStates(false, false);
+            lineNumberLabel.setText("Строка: 0");
+        });
     }
 
     private void connect() {
@@ -133,31 +362,6 @@ public class SocketTransmitter extends JFrame {
             JOptionPane.showMessageDialog(this, "Ошибка подключения: " + e.getMessage());
             statusLabel.setText("Ошибка подключения");
         }
-    }
-
-    private void disconnect() {
-        isConnected.set(false);
-        isStopped.set(true);
-
-        if (transmissionThread != null && transmissionThread.isAlive()) {
-            transmissionThread.interrupt();
-        }
-
-        try {
-            if (outputStream != null) {
-                outputStream.close();
-            }
-            if (socket != null) {
-                socket.close();
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        statusLabel.setText("Не подключено");
-        connectButton.setText("Подключить");
-        updateButtonStates(false, false);
-        lineNumberLabel.setText("Строка: 0");
     }
 
     private void startTransmission() {
@@ -257,7 +461,8 @@ public class SocketTransmitter extends JFrame {
 
             if (c == 10) { // Home
                 Thread.sleep(300);
-                sendByte(231);
+                // sendByte(231);
+                sendByte(210); // Hom
                 Thread.sleep(300);
             }
         }
@@ -286,6 +491,8 @@ public class SocketTransmitter extends JFrame {
         startButton.setEnabled(connected && !transmissionRunning);
         pauseButton.setEnabled(connected && transmissionRunning);
         stopButton.setEnabled(connected && transmissionRunning);
+        sendCustomButton.setEnabled(connected && !transmissionRunning);
+        testButton.setEnabled(connected);
 
         if (!transmissionRunning) {
             pauseButton.setText("Пауза");
