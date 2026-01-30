@@ -82,7 +82,6 @@ public class SocketTransmitter extends JFrame {
         stopButton.addActionListener(e -> stopTransmission());
         startButton.addActionListener(e -> startTransmission());
 
-
         // Начальное состояние кнопок
         updateButtonStates(false, false);
     }
@@ -195,6 +194,24 @@ public class SocketTransmitter extends JFrame {
         }
     }
 
+    // Проверка, является ли символ переключателем раскладки
+    private boolean isLayoutSwitchChar(char c) {
+        return c == '~' || c == 'Ё' || c == 'ё' || c == '`';
+    }
+
+    // Метод для переключения раскладки
+    private void switchLayout() throws IOException, InterruptedException {
+        if (isEnglish) {
+            // Переключаем на русскую - отправляем "~"
+            sendByte(126); // ~
+        } else {
+            // Переключаем на английскую - отправляем "`"
+            sendByte(96); // `
+        }
+        isEnglish = !isEnglish;
+        Thread.sleep(200);
+    }
+
     // Публичный метод для отправки произвольного текста
     public void sendCustomText(String text) throws IOException, InterruptedException {
         if (!isConnected.get()) {
@@ -208,16 +225,23 @@ public class SocketTransmitter extends JFrame {
         try {
             // Отправляем текст посимвольно
             for (char c : text.toCharArray()) {
+                // Проверяем, является ли символ переключателем раскладки
+                if (isLayoutSwitchChar(c)) {
+                    // Сначала отправляем символ
+                    sendByte(c);
+                    // Затем переключаем раскладку
+                    isEnglish = !isEnglish;
+                    Thread.sleep(200);
+                    continue;
+                }
+
                 // Обработка IDE режима для символа {
                 if (ideCheckBox.isSelected() && isSpecialCharacterForIDE(c)) {
                     // Отправляем символ {
                     boolean isRussian = isCyrillic(c);
                     if (isRussian) {
                         if (isEnglish) {
-                            isEnglish = false;
-                            Thread.sleep(200);
-                            sendByte(134); // CapsLock
-                            Thread.sleep(200);
+                            switchLayout(); // Используем switchLayout вместо CapsLock
                         }
                         if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
                             int symb = KEY_CODES_RUS.get(String.valueOf(c));
@@ -225,10 +249,7 @@ public class SocketTransmitter extends JFrame {
                         }
                     } else {
                         if (!isEnglish) {
-                            isEnglish = true;
-                            Thread.sleep(200);
-                            sendByte(134); // CapsLock
-                            Thread.sleep(200);
+                            switchLayout(); // Используем switchLayout вместо CapsLock
                         }
                         sendByte(c);
                     }
@@ -243,10 +264,7 @@ public class SocketTransmitter extends JFrame {
                     boolean isRussian = isCyrillic(c);
                     if (isRussian) {
                         if (isEnglish) {
-                            isEnglish = false;
-                            Thread.sleep(200);
-                            sendByte(134); // CapsLock
-                            Thread.sleep(200);
+                            switchLayout(); // Используем switchLayout вместо CapsLock
                         }
                         if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
                             int symb = KEY_CODES_RUS.get(String.valueOf(c));
@@ -254,10 +272,7 @@ public class SocketTransmitter extends JFrame {
                         }
                     } else {
                         if (!isEnglish) {
-                            isEnglish = true;
-                            Thread.sleep(200);
-                            sendByte(134); // CapsLock
-                            Thread.sleep(200);
+                            switchLayout(); // Используем switchLayout вместо CapsLock
                         }
                         sendByte(c);
                     }
@@ -268,8 +283,7 @@ public class SocketTransmitter extends JFrame {
             // Возвращаем раскладку, если нужно
             if (!isEnglish && wasEnglish) {
                 Thread.sleep(200);
-                sendByte(134); // CapsLock
-                Thread.sleep(200);
+                switchLayout(); // Используем switchLayout вместо CapsLock
             }
 
             // Восстанавливаем состояние
@@ -441,6 +455,7 @@ public class SocketTransmitter extends JFrame {
 
         transmissionThread.start();
     }
+
     private boolean isSpecialCharacterForIDE(char c) {
         // Расширенный список символов, после которых нужно нажать Del
         return c == '{' ||
@@ -449,6 +464,7 @@ public class SocketTransmitter extends JFrame {
                 c == '[' ||  // открывающая квадратная скобка
                 c == '(';    // открывающая круглая скобка
     }
+
     private int getRandomDelay(int baseDelay) {
         // Базовая задержка + случайное значение от -150 до +150 мс
         int randomOffset = (int) (Math.random() * 300) - 150; // -150..+150
@@ -466,6 +482,7 @@ public class SocketTransmitter extends JFrame {
 
         return delay;
     }
+
     private void setupGlobalKeyListener() {
         KeyboardFocusManager.getCurrentKeyboardFocusManager()
                 .addKeyEventDispatcher(new KeyEventDispatcher() {
@@ -511,7 +528,7 @@ public class SocketTransmitter extends JFrame {
                 break;
             }
 
-            System.out.println(c);
+            System.out.println("Отправка символа: " + c + " (код: " + (int)c + ")");
 
             if (c == 10) { // Home
                 Thread.sleep(100);
@@ -522,16 +539,23 @@ public class SocketTransmitter extends JFrame {
                 SwingUtilities.invokeLater(() -> lineNumberLabel.setText("Строка: " + finalLineNum1 + " из " + lines.length));
             }
 
+            // Проверяем, является ли символ переключателем раскладки
+            if (isLayoutSwitchChar(c)) {
+                // Сначала отправляем символ
+                sendByte(c);
+                // Затем переключаем раскладку
+                isEnglish = !isEnglish;
+                Thread.sleep(200);
+                continue;
+            }
+
             // Обработка IDE режима для символа {
             if (ideCheckBox.isSelected() && isSpecialCharacterForIDE(c)) {
                 // Отправляем символ {
                 boolean isRussian = isCyrillic(c);
                 if (isRussian) {
                     if (isEnglish) {
-                        isEnglish = false;
-                        Thread.sleep(200);
-                        sendByte(134);
-                        Thread.sleep(200);
+                        switchLayout(); // Используем switchLayout вместо CapsLock
                     }
                     if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
                         int symb = KEY_CODES_RUS.get(String.valueOf(c));
@@ -539,10 +563,7 @@ public class SocketTransmitter extends JFrame {
                     }
                 } else {
                     if (!isEnglish) {
-                        isEnglish = true;
-                        Thread.sleep(200);
-                        sendByte(134);
-                        Thread.sleep(200);
+                        switchLayout(); // Используем switchLayout вместо CapsLock
                     }
                     sendByte(c);
                 }
@@ -558,10 +579,7 @@ public class SocketTransmitter extends JFrame {
                 boolean isRussian = isCyrillic(c);
                 if (isRussian) {
                     if (isEnglish) {
-                        isEnglish = false;
-                        Thread.sleep(200);
-                        sendByte(134);
-                        Thread.sleep(200);
+                        switchLayout(); // Используем switchLayout вместо CapsLock
                     }
                     if (KEY_CODES_RUS.containsKey(String.valueOf(c))) {
                         int symb = KEY_CODES_RUS.get(String.valueOf(c));
@@ -569,10 +587,7 @@ public class SocketTransmitter extends JFrame {
                     }
                 } else {
                     if (!isEnglish) {
-                        isEnglish = true;
-                        Thread.sleep(200);
-                        sendByte(134);
-                        Thread.sleep(200);
+                        switchLayout(); // Используем switchLayout вместо CapsLock
                     }
                     sendByte(c);
                 }
@@ -585,10 +600,10 @@ public class SocketTransmitter extends JFrame {
             }
         }
 
+        // Возвращаем в английскую раскладку по завершению
         if (!isEnglish) {
             Thread.sleep(200);
-            sendByte(134);
-            Thread.sleep(200);
+            switchLayout(); // Используем switchLayout вместо CapsLock
         }
     }
 

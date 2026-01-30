@@ -32,6 +32,11 @@ public class KeyCodes {
 //        }
 //        Thread.sleep(100);
 
+    public static final int CODE_TILDE = 126;        // ~
+    public static final int CODE_BACKTICK = 96;      // `
+    public static final int CODE_YO_UPPER = 126;     // Ё (русская)
+    public static final int CODE_YO_LOWER = 96;      // ё (русская)
+
     // message = "Йaaaaaaa ыыыыыыыы ППППППП VVVVV";
     static {
         // 135 - Win
