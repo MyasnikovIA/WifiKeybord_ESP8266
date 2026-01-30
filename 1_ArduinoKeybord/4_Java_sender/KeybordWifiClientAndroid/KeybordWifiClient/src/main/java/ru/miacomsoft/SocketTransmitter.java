@@ -444,6 +444,23 @@ public class SocketTransmitter extends JFrame {
                 c == '[' ||  // открывающая квадратная скобка
                 c == '(';    // открывающая круглая скобка
     }
+    private int getRandomDelay(int baseDelay) {
+        // Базовая задержка + случайное значение от -150 до +150 мс
+        int randomOffset = (int) (Math.random() * 300) - 150; // -150..+150
+        int delay = baseDelay + randomOffset;
+
+        // Гарантируем, что задержка не будет отрицательной
+        if (delay < 50) {
+            delay = 50; // Минимальная задержка 50 мс
+        }
+
+        // Ограничиваем максимальную задержку
+        if (delay > 500) {
+            delay = 500; // Максимальная задержка 500 мс
+        }
+
+        return delay;
+    }
     private void transmitMessage(String message) throws InterruptedException, IOException {
         message = message.replaceAll("[\\p{C}&&[^\n]]", "");
 
@@ -585,8 +602,11 @@ public class SocketTransmitter extends JFrame {
             outputStream.write(new byte[]{b});
             outputStream.flush();
         }
+
+        // Используем случайную задержку вместо фиксированной 100 мс
+        int delay = getRandomDelay(100); // Базовая задержка 100 мс ± 150 мс
         try {
-            Thread.sleep(100);
+            Thread.sleep(delay);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Transmission interrupted", e);
