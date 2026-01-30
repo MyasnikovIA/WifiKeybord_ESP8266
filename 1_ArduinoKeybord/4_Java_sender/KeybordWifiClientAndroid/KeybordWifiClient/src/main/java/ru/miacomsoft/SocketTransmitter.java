@@ -2,6 +2,7 @@ package ru.miacomsoft;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.KeyEvent;
 import java.io.*;
 import java.net.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,6 +41,8 @@ public class SocketTransmitter extends JFrame {
         initComponents();
         layoutComponents();
 
+        setupGlobalKeyListener();
+
         setVisible(true);
     }
 
@@ -69,6 +72,7 @@ public class SocketTransmitter extends JFrame {
 
         lineNumberLabel = new JLabel("Строка: 0");
         statusLabel = new JLabel("Не подключено");
+        statusLabel.setForeground(Color.RED); // По умолчанию
 
         // Чекбокс IDE
         ideCheckBox = new JCheckBox("IDE");
@@ -77,6 +81,7 @@ public class SocketTransmitter extends JFrame {
         pauseButton.addActionListener(e -> togglePause());
         stopButton.addActionListener(e -> stopTransmission());
         startButton.addActionListener(e -> startTransmission());
+
 
         // Начальное состояние кнопок
         updateButtonStates(false, false);
@@ -461,6 +466,29 @@ public class SocketTransmitter extends JFrame {
 
         return delay;
     }
+    private void setupGlobalKeyListener() {
+        KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                .addKeyEventDispatcher(new KeyEventDispatcher() {
+                    @Override
+                    public boolean dispatchKeyEvent(KeyEvent e) {
+                        if (e.getID() == KeyEvent.KEY_PRESSED) {
+                            // Проверяем, что нажат пробел и окно активно
+                            if (e.getKeyCode() == KeyEvent.VK_SPACE &&
+                                    SocketTransmitter.this.isActive() &&
+                                    isConnected.get() &&
+                                    transmissionThread != null &&
+                                    transmissionThread.isAlive()) {
+
+                                // Запускаем в EDT (Event Dispatch Thread)
+                                SwingUtilities.invokeLater(() -> togglePause());
+                                return true; // Поглощаем событие
+                            }
+                        }
+                        return false;
+                    }
+                });
+    }
+
     private void transmitMessage(String message) throws InterruptedException, IOException {
         message = message.replaceAll("[\\p{C}&&[^\n]]", "");
 
@@ -564,8 +592,37 @@ public class SocketTransmitter extends JFrame {
     }
 
     private void togglePause() {
+        if (!isConnected.get() ||
+                transmissionThread == null ||
+                !transmissionThread.isAlive()) {
+            return;
+        }
+
         isPaused.set(!isPaused.get());
         pauseButton.setText(isPaused.get() ? "Продолжить" : "Пауза");
+
+        SwingUtilities.invokeLater(() -> {
+            if (isPaused.get()) {
+                statusLabel.setText("ПАУЗА");
+                statusLabel.setForeground(Color.RED);
+                statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD));
+
+                // Мигающий эффект (опционально)
+                new Thread(() -> {
+                    try {
+                        for (int i = 0; i < 3 && isPaused.get(); i++) {
+                            statusLabel.setForeground(i % 2 == 0 ? Color.RED : Color.YELLOW);
+                            Thread.sleep(300);
+                        }
+                    } catch (InterruptedException ignored) {}
+                }).start();
+
+            } else {
+                statusLabel.setText("Подключено");
+                statusLabel.setForeground(new Color(0, 150, 0)); // Зеленый
+                statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN));
+            }
+        });
     }
 
     private void stopTransmission() {
