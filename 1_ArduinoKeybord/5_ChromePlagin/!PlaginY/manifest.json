@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Multi-Block Text Copier",
+  "version": "1.0",
+  "description": "Копирует текст из нескольких блоков одновременно",
+  "permissions": ["activeTab", "scripting"],
+  "action": {
+    "default_title": "Скопировать блоки кода"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
