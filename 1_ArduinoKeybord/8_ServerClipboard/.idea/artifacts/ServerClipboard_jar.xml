@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="ServerClipboard:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/ServerClipboard_jar</output-path>
+    <root id="archive" name="ServerClipboard.jar">
+      <element id="module-output" name="ServerClipboard" />
+    </root>
+  </artifact>
+</component>

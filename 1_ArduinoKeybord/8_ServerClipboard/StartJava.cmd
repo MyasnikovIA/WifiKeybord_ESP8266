@@ -1,0 +1,1 @@
+C:\Java\AxiomJDK-21\bin\java.exe "-javaagent:C:\JetBrains\IntelliJ IDEA 2025.1\lib\idea_rt.jar=55254" -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8 -classpath C:\JavaProjects\WifiKeybord_ESP8266\1_ArduinoKeybord\ServerClipboard\target\classes ru.miacomsoft.Main

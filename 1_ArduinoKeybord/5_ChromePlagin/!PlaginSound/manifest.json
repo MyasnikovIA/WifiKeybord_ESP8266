@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Sound Context Menu",
+  "version": "1.0",
+  "description": "Копирует выделенный текст в формате sound(192.168.15.3:8080): текст",
+  "permissions": [
+    "contextMenus",
+    "clipboardWrite",
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

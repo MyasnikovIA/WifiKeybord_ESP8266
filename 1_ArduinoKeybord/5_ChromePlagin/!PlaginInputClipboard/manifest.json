@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Вставка из буфера по двойному клику",
+  "version": "1.0",
+  "description": "Вставляет текст из буфера обмена при двойном клике на текстовое поле",
+  "permissions": ["clipboardRead", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
