@@ -469,14 +469,29 @@ public class MainFrame extends JFrame {
                         if (textRadio.isSelected()) {
                             model.sendCustomText(input);
                         } else {
+                            // Исправленный парсинг байтов
                             String[] byteStrings = input.split("\\s+");
                             byte[] bytes = new byte[byteStrings.length];
                             for (int i = 0; i < byteStrings.length; i++) {
-                                bytes[i] = (byte) Integer.parseInt(byteStrings[i].trim());
+                                try {
+                                    int value = Integer.parseInt(byteStrings[i].trim());
+                                    // Валидация диапазона
+                                    if (value < 0 || value > 255) {
+                                        throw new NumberFormatException("Значение должно быть в диапазоне 0-255: " + value);
+                                    }
+                                    bytes[i] = (byte) value;
+                                } catch (NumberFormatException ex) {
+                                   // SwingUtilities.invokeLater(() ->
+                                   //         JOptionPane.showMessageDialog(this,
+                                   //                 "Ошибка парсинга байта '" + byteStrings[i] + "': " + ex.getMessage(),
+                                   //                 "Ошибка", JOptionPane.ERROR_MESSAGE));
+                                    return;
+                                }
                             }
                             model.sendCustomBytes(bytes);
                         }
-                        JOptionPane.showMessageDialog(this, "Данные успешно отправлены!");
+                        SwingUtilities.invokeLater(() ->
+                                JOptionPane.showMessageDialog(this, "Данные успешно отправлены!"));
                     } catch (Exception ex) {
                         SwingUtilities.invokeLater(() ->
                                 JOptionPane.showMessageDialog(this, "Ошибка отправки: " + ex.getMessage()));
@@ -704,4 +719,6 @@ public class MainFrame extends JFrame {
             }
         });
     }
+
+
 }

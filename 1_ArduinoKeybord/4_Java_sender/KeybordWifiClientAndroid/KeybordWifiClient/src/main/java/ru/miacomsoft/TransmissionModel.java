@@ -216,27 +216,6 @@ public class TransmissionModel {
         serialTransmitter.sendByte(value);
     }
 
-    // Переключение языка через Scroll Lock
-    public void switchLanguage() throws IOException, InterruptedException {
-        if (!isConnected()) return;
-
-        // Отправляем код переключения раскладки
-        if (isEnglish) {
-            sendByte(126);  // Переключение на русский (Ё)
-        } else {
-            sendByte(96);   // Переключение на английский (ё)
-        }
-
-        isEnglish = !isEnglish;
-
-        // Уведомляем GUI об изменении
-        SwingUtilities.invokeLater(() -> {
-            if (onLayoutChanged != null) onLayoutChanged.run();
-            if (onLanguageSwitch != null) onLanguageSwitch.run();
-        });
-
-        Thread.sleep(SWITCH_LAYOUT_DELAY);
-    }
 
     public void toggleLanguageFromGUI() {
         if (!isConnected()) {
@@ -342,7 +321,7 @@ public class TransmissionModel {
             }
 
             if (isLayoutSwitchChar(c)) {
-                if (c == 'ё' || c == 'Ё') {
+                if (c == 207) {
                     handleYoChar(c);
                 } else {
                     sendByte(c);
@@ -541,7 +520,20 @@ public class TransmissionModel {
             case KeyEvent.VK_NUM_LOCK: sendByte(219); break;
         }
     }
+    public void switchLanguage() throws IOException, InterruptedException {
+        if (!isConnected()) return;
 
+        sendByte(207);  // Переключение раскладки через Scroll Lock
+
+        isEnglish = !isEnglish;
+
+        SwingUtilities.invokeLater(() -> {
+            if (onLayoutChanged != null) onLayoutChanged.run();
+            if (onLanguageSwitch != null) onLanguageSwitch.run();
+        });
+
+        Thread.sleep(SWITCH_LAYOUT_DELAY);
+    }
     private void handleCharacter(char keyChar, boolean isShift) throws IOException, InterruptedException {
         if (keyChar < 32) {
             handleControlCharacter(keyChar);
@@ -600,7 +592,7 @@ public class TransmissionModel {
 
     // Вспомогательные методы
     private void switchLayout() throws IOException, InterruptedException {
-        sendByte(96);
+        sendByte(207);  // Переключение раскладки через Scroll Lock
         isEnglish = !isEnglish;
         SwingUtilities.invokeLater(() -> {
             if (onLayoutChanged != null) onLayoutChanged.run();
@@ -608,35 +600,38 @@ public class TransmissionModel {
         Thread.sleep(SWITCH_LAYOUT_DELAY);
     }
 
-    private void handleYoChar(char yoChar) throws IOException, InterruptedException {
-        if (yoChar == 'ё') {
-            sendByte(96);
-        } else if (yoChar == 'Ё') {
-            sendByte(126);
-        }
-
-        if (isEnglish) {
-            isEnglish = false;
-            SwingUtilities.invokeLater(() -> {
-                if (onLayoutChanged != null) onLayoutChanged.run();
-            });
-        }
-        Thread.sleep(SWITCH_LAYOUT_DELAY);
+    private void handleYoChar(char yoChar) throws IOException {
+        // Отправляем как обычные символы через sendRussianChar
+        sendRussianChar(yoChar);
     }
 
+    private boolean isLayoutSwitchChar(char c) {
+        return c == 207;
+    }
     private void sendRussianChar(char russianChar) throws IOException {
         String charStr = String.valueOf(russianChar);
+
+        // Обработка букв Ё и ё
+        if (russianChar == 'ё') {
+            sendByte(96);
+            System.out.println("Отправлен русский символ 'ё' как код: 96");
+            return;
+        } else if (russianChar == 'Ё') {
+            sendByte(126);
+            System.out.println("Отправлен русский символ 'Ё' как код: 126");
+            return;
+        }
+
         if (KEY_CODES_RUS.containsKey(charStr)) {
             int code = KEY_CODES_RUS.get(charStr);
             sendByte(code);
             System.out.println("Отправлен русский символ '" + russianChar + "' как код: " + code);
+        } else {
+            // Если символ не найден, отправляем как есть
+            sendByte(russianChar);
+            System.out.println("Русский символ '" + russianChar + "' не найден в словаре, отправлен как char: " + (int)russianChar);
         }
     }
-
-    private boolean isLayoutSwitchChar(char c) {
-        return c == '~' || c == 'Ё' || c == 'ё' || c == '`';
-    }
-
     private boolean isSpecialCharacterForIDE(char c) {
         return c == '{' || c == '}' || c == '"' || c == '\'' ||
                 c == '[' || c == ']' || c == '(' || c == ')';
@@ -747,11 +742,29 @@ public class TransmissionModel {
     public void sendCustomBytes(byte[] bytes) throws IOException, InterruptedException {
         if (!isConnected()) throw new IllegalStateException("Не подключено");
 
-        for (byte b : bytes) {
-            sendByte(b & 0xFF);
-            Thread.sleep(BASE_DELAY);
+        System.out.println("Отправка " + bytes.length + " байт:");
+        for (int i = 0; i < bytes.length; i++) {
+            int value = bytes[i] & 0xFF;
+            System.out.println("  Байт " + (i+1) + ": " + value + " (0x" + Integer.toHexString(value) + ")");
+            sendByte(value);
+
+            // Задержка между байтами (можно сделать настраиваемой)
+            if (i < bytes.length - 1) {
+                Thread.sleep(BASE_DELAY);
+            }
         }
+        System.out.println("Все байты отправлены");
     }
+    
+    
+   //public void sendCustomBytes(byte[] bytes) throws IOException, InterruptedException {
+   //    if (!isConnected()) throw new IllegalStateException("Не подключено");
+
+   //    for (byte b : bytes) {
+   //        sendByte(b & 0xFF);
+   //        Thread.sleep(BASE_DELAY);
+   //    }
+   //}
 
     public void sendSingleByte(int value) throws IOException {
         if (!isConnected()) throw new IllegalStateException("Не подключено");
