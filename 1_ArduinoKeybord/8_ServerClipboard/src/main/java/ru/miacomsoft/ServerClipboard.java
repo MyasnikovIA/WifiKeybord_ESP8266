@@ -10,16 +10,19 @@ import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
-import java.util.regex.Matcher;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class ServerClipboard {
     private static List<MessageBlock> messageBlocks = new ArrayList<>();
+    private static Map<String, MessageBlock> partialMessages = new HashMap<>();
     private static JPanel messagesPanel;
     private static JFrame frame;
     private static volatile boolean serverRunning = true;
@@ -36,12 +39,17 @@ public class ServerClipboard {
     // Паттерн для распознавания команды SOUND
     private static final Pattern SOUND_PATTERN = Pattern.compile("^SOUND\\(([^):]+)(?::(\\d+))?\\):(.*)$", Pattern.DOTALL);
 
-    // Новые переменные для кнопок
+    // Переменные для кнопок
     private static JPanel verticalButtonPanel;
     private static List<CustomButtonData> customButtons = new ArrayList<>();
     private static final String BUTTONS_SAVE_FILE = "custom_buttons.json";
     private static boolean editMode = false;
     private static JCheckBox editModeCheckbox;
+
+
+    private static String currentPartialId = null;
+    private static String currentPartialText = "";
+
 
     // Класс для хранения данных кнопки
     private static class CustomButtonData {
@@ -107,7 +115,6 @@ public class ServerClipboard {
             @Override
             public Dimension getPreferredSize() {
                 Dimension size = super.getPreferredSize();
-                // Устанавливаем минимальную ширину 50px, но панель может расширяться
                 size.width = Math.max(50, size.width);
                 return size;
             }
@@ -138,22 +145,21 @@ public class ServerClipboard {
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         splitPane.setLeftComponent(verticalButtonPanel);
         splitPane.setRightComponent(scrollPane);
-        splitPane.setDividerLocation(150); // Начальная ширина панели кнопок
-        splitPane.setDividerSize(8); // Размер разделителя
-        splitPane.setOneTouchExpandable(true); // Добавляем кнопки для быстрого раскрытия
+        splitPane.setDividerLocation(150);
+        splitPane.setDividerSize(8);
+        splitPane.setOneTouchExpandable(true);
 
         // Настраиваем поведение разделителя
         splitPane.setContinuousLayout(true);
         splitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, new PropertyChangeListener() {
             @Override
             public void propertyChange(PropertyChangeEvent evt) {
-                // При изменении положения разделителя обновляем размеры кнопок
                 SwingUtilities.invokeLater(() -> {
                     for (Component comp : verticalButtonPanel.getComponents()) {
                         if (comp instanceof JButton) {
                             JButton button = (JButton) comp;
                             int panelWidth = verticalButtonPanel.getWidth();
-                            int buttonWidth = Math.max(panelWidth - 20, 30); // Минимальная ширина 30px
+                            int buttonWidth = Math.max(panelWidth - 20, 30);
                             button.setMaximumSize(new Dimension(buttonWidth, 30));
                             button.setPreferredSize(new Dimension(buttonWidth, 30));
                             button.setMinimumSize(new Dimension(30, 30));
@@ -181,12 +187,10 @@ public class ServerClipboard {
         JButton clearAllButton = new JButton("Очистить всю историю");
         clearAllButton.addActionListener(e -> clearAllMessages());
 
-        // Кнопка для склеивания всего списка
         JButton mergeAllButton = new JButton("Склеить весь список");
         mergeAllButton.setToolTipText("Скопировать все сообщения в буфер обмена (каждое с новой строки)");
         mergeAllButton.addActionListener(e -> mergeAllMessagesToClipboard());
 
-        // Кнопка управления озвучиванием
         JButton toggleSoundButton = new JButton("Звук ВКЛ/ВЫКЛ");
         toggleSoundButton.addActionListener(e -> {
             soundEnabled = !soundEnabled;
@@ -202,17 +206,14 @@ public class ServerClipboard {
                     JOptionPane.INFORMATION_MESSAGE);
         });
 
-        // Кнопка настроек звука
         JButton soundSettingsButton = new JButton("Настройки звука");
         soundSettingsButton.addActionListener(e -> showSoundSettingsDialog());
 
-        // Галочка для режима редактирования
         editModeCheckbox = new JCheckBox("Редактирование кнопок");
         editModeCheckbox.addActionListener(e -> {
             editMode = editModeCheckbox.isSelected();
         });
 
-        // Панель для кнопок внизу
         JPanel bottomButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         bottomButtonPanel.add(copyTemplateButton);
         bottomButtonPanel.add(copyTemplateButton2);
@@ -223,7 +224,6 @@ public class ServerClipboard {
         bottomButtonPanel.add(soundSettingsButton);
         bottomButtonPanel.add(editModeCheckbox);
 
-        // Основная панель с BorderLayout
         JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.add(infoPanel, BorderLayout.NORTH);
         mainPanel.add(splitPane, BorderLayout.CENTER);
@@ -231,22 +231,20 @@ public class ServerClipboard {
 
         frame.add(mainPanel);
 
-        // Добавляем слушатель для изменения размера фрейма
         frame.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
-                // При изменении размера фрейма обновляем ширину кнопок
                 updateButtonWidths();
             }
         });
 
         frame.setVisible(true);
     }
-    // Метод для обновления ширины кнопок при изменении размера панели
+
     private static void updateButtonWidths() {
         if (verticalButtonPanel != null) {
             int panelWidth = verticalButtonPanel.getWidth();
-            int buttonWidth = Math.max(panelWidth - 20, 30); // Минимальная ширина 30px
+            int buttonWidth = Math.max(panelWidth - 20, 30);
 
             for (Component comp : verticalButtonPanel.getComponents()) {
                 if (comp instanceof JButton) {
@@ -259,7 +257,7 @@ public class ServerClipboard {
             verticalButtonPanel.repaint();
         }
     }
-    // Метод для загрузки кнопок из файла
+
     private static void loadCustomButtonsFromFile() {
         File file = new File(BUTTONS_SAVE_FILE);
         if (!file.exists()) {
@@ -287,7 +285,6 @@ public class ServerClipboard {
         }
     }
 
-    // Метод для сохранения кнопок в файл
     private static void saveCustomButtonsToFile() {
         try (FileWriter file = new FileWriter(BUTTONS_SAVE_FILE)) {
             JSONArray jsonArray = new JSONArray();
@@ -304,19 +301,14 @@ public class ServerClipboard {
         }
     }
 
-    // Метод для обновления отображения вертикальных кнопок
-    // Метод для обновления отображения вертикальных кнопок
     private static void refreshVerticalButtons() {
-        // Удаляем все кнопки кроме ADD
         while (verticalButtonPanel.getComponentCount() > 1) {
             verticalButtonPanel.remove(1);
         }
 
-        // Текущая ширина панели
         int panelWidth = verticalButtonPanel.getWidth();
-        int buttonWidth = Math.max(panelWidth - 20, 30); // Минимальная ширина 30px
+        int buttonWidth = Math.max(panelWidth - 20, 30);
 
-        // Добавляем сохраненные кнопки
         for (CustomButtonData buttonData : customButtons) {
             JButton button = new JButton(buttonData.buttonText);
             button.setToolTipText(buttonData.tooltipText);
@@ -332,7 +324,6 @@ public class ServerClipboard {
                 }
             });
 
-            // Устанавливаем размеры для динамического масштабирования
             button.setMaximumSize(new Dimension(buttonWidth, 30));
             button.setPreferredSize(new Dimension(buttonWidth, 30));
             button.setMinimumSize(new Dimension(30, 30));
@@ -346,7 +337,6 @@ public class ServerClipboard {
         verticalButtonPanel.repaint();
     }
 
-    // Диалог добавления новой кнопки
     private static void showAddButtonDialog() {
         JDialog dialog = new JDialog(frame, "Добавить новую кнопку", true);
         dialog.setLayout(new BorderLayout());
@@ -359,20 +349,17 @@ public class ServerClipboard {
         gbc.gridx = 0;
         gbc.gridy = 0;
 
-        // Название кнопки
         panel.add(new JLabel("Название кнопки:"), gbc);
         gbc.gridy++;
         JTextField buttonNameField = new JTextField(20);
         panel.add(buttonNameField, gbc);
 
-        // Подсказка
         gbc.gridy++;
         panel.add(new JLabel("Подсказка (tooltip):"), gbc);
         gbc.gridy++;
         JTextField tooltipField = new JTextField(20);
         panel.add(tooltipField, gbc);
 
-        // Текст для копирования
         gbc.gridy++;
         panel.add(new JLabel("Текст для копирования:"), gbc);
         gbc.gridy++;
@@ -382,7 +369,6 @@ public class ServerClipboard {
         JScrollPane scrollPane = new JScrollPane(textArea);
         panel.add(scrollPane, gbc);
 
-        // Кнопки сохранения/отмены
         JPanel buttonPanel = new JPanel();
         JButton saveButton = new JButton("Сохранить");
         JButton cancelButton = new JButton("Отмена");
@@ -418,7 +404,6 @@ public class ServerClipboard {
         dialog.setVisible(true);
     }
 
-    // Диалог редактирования кнопки
     private static void showEditButtonDialog(CustomButtonData buttonData, int index) {
         JDialog dialog = new JDialog(frame, "Редактировать кнопку", true);
         dialog.setLayout(new BorderLayout());
@@ -431,20 +416,17 @@ public class ServerClipboard {
         gbc.gridx = 0;
         gbc.gridy = 0;
 
-        // Название кнопки
         panel.add(new JLabel("Название кнопки:"), gbc);
         gbc.gridy++;
         JTextField buttonNameField = new JTextField(buttonData.buttonText, 20);
         panel.add(buttonNameField, gbc);
 
-        // Подсказка
         gbc.gridy++;
         panel.add(new JLabel("Подсказка (tooltip):"), gbc);
         gbc.gridy++;
         JTextField tooltipField = new JTextField(buttonData.tooltipText, 20);
         panel.add(tooltipField, gbc);
 
-        // Текст для копирования
         gbc.gridy++;
         panel.add(new JLabel("Текст для копирования:"), gbc);
         gbc.gridy++;
@@ -454,7 +436,6 @@ public class ServerClipboard {
         JScrollPane scrollPane = new JScrollPane(textArea);
         panel.add(scrollPane, gbc);
 
-        // Кнопки сохранения/удаления/отмены
         JPanel buttonPanel = new JPanel();
         JButton saveButton = new JButton("Сохранить");
         JButton deleteButton = new JButton("Удалить");
@@ -507,13 +488,11 @@ public class ServerClipboard {
         dialog.setVisible(true);
     }
 
-    // Метод для копирования кастомного текста
     private static void copyCustomText(String text) {
         copyTextToClipboard(text);
         System.out.println("Кастомный текст скопирован в буфер обмена");
     }
 
-    // Метод для склеивания всех сообщений в буфер обмена
     private static void mergeAllMessagesToClipboard() {
         if (messageBlocks.isEmpty()) {
             JOptionPane.showMessageDialog(frame,
@@ -527,9 +506,8 @@ public class ServerClipboard {
 
         for (int i = 0; i < messageBlocks.size(); i++) {
             MessageBlock block = messageBlocks.get(i);
-            mergedText.append(block.text);
+            mergedText.append(block.getText());
 
-            // Добавляем новую строку после каждого блока, кроме последнего
             if (i < messageBlocks.size() - 1) {
                 mergedText.append("\n");
             }
@@ -538,7 +516,6 @@ public class ServerClipboard {
         copyTextToClipboard(mergedText.toString());
     }
 
-    // Диалог настроек звука
     private static void showSoundSettingsDialog() {
         JPanel panel = new JPanel(new GridLayout(3, 2, 10, 10));
 
@@ -573,7 +550,6 @@ public class ServerClipboard {
         }
     }
 
-    // Метод для озвучивания текста
     public static void speakText(String text) {
         if (!soundEnabled || text == null || text.trim().isEmpty()) {
             return;
@@ -591,7 +567,6 @@ public class ServerClipboard {
                 String voice = soundVoice;
                 String speedParam = "-s" + soundSpeed;
 
-                // Очищаем текст от лишних символов
                 String cleanText = text.replaceAll("[\\r\\n]+", " ").trim();
 
                 ProcessBuilder processBuilder = new ProcessBuilder(command, voiceParam, voice, speedParam, cleanText);
@@ -601,7 +576,6 @@ public class ServerClipboard {
 
                 Process process = processBuilder.start();
 
-                // Читаем вывод программы
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -629,11 +603,9 @@ public class ServerClipboard {
         }).start();
     }
 
-    // Метод для остановки текущего озвучивания
     private static void stopCurrentSpeech() {
         if (isSpeaking.get()) {
             try {
-                // Для Windows - завершаем процесс Govorilka_cp.exe
                 Runtime.getRuntime().exec("taskkill /F /IM Govorilka_cp.exe");
                 System.out.println("Озвучивание остановлено");
             } catch (IOException e) {
@@ -642,12 +614,9 @@ public class ServerClipboard {
         }
     }
 
-    // Метод для обработки команды SOUND - только озвучивание без добавления в историю
     private static void processSoundCommand(String text, InetAddress clientAddress) {
-        // Удаляем префикс "SOUND:" (включая возможные пробелы после двоеточия)
         String content = text.replaceFirst("^SOUND:\\s*", "").trim();
 
-        // Проверяем, что после удаления префикса остался текст
         if (content.isEmpty()) {
             System.out.println("Пустая команда SOUND от " + clientAddress);
             return;
@@ -660,14 +629,10 @@ public class ServerClipboard {
             System.out.println("Предпросмотр: " + content.substring(0, 50) + "...");
         }
 
-        // Озвучиваем текст (без добавления в историю)
         speakText(content);
-
-        // Не добавляем в историю сообщений, только логируем
-        System.out.println("Текст озвучен (не добавлен в историю): " + content.substring(0, Math.min(100, content.length())) + "...");
+        System.out.println("Текст озвучен: " + content.substring(0, Math.min(100, content.length())) + "...");
     }
 
-    // Новая функция для копирования произвольного текста в буфер обмена
     private static void copyTextToClipboard(String text) {
         if (text == null || text.trim().isEmpty()) {
             return;
@@ -677,41 +642,38 @@ public class ServerClipboard {
         System.out.println("Текст скопирован в буфер обмена");
     }
 
-    // Функция для копирования шаблонного текста
     private static void copyTemplateSendText() {
-        String templateText ="Необходимо написать учебную программу на языке JAVA по текстовому описанию. Программа не должна содержать комментарии на русском язуке.\n" +
+        String templateText = "Необходимо написать учебную программу на языке JAVA по текстовому описанию. Программа не должна содержать комментарии на русском язуке.\n" +
                 "Все должно бьыть максимально локонично, и с применением минимального количества библиотек.\n" +
                 "Алгоритм должен быть написан максимально продуктивным способом, чтобы количество операций (сложновть) было как можно меньше.\n" +
-                "Сначала необходимо написать программу, а потом  очень короткое описание что она выполняет.\n" +
+                "Сначала необходимо написать программу, а потом очень короткое описание что она выполняет.\n" +
                 "Далее будет писать голосовое описание:\n\n";
         addMessage(templateText);
         ServerClipboard.copyTextToClipboard(templateText);
     }
 
-
-    // Функция для копирования шаблонного текста
     private static void copyTemplateErrorText() {
-        String templateText ="В написанном ответе из предыдущего комментария есть ошибка которая выявилась при тесте.\n" +
-                "Еще раз  изучи задание и в этот раз напиши код без ошибок, чтобы все тестов прошли успешно.\n" +
+        String templateText = "В написанном ответе из предыдущего комментария есть ошибка которая выявилась при тесте.\n" +
+                "Еще раз изучи задание и в этот раз напиши код без ошибок, чтобы все тестов прошли успешно.\n" +
                 "Сначала покажи исправленный код, а потом короткое рассуждение где была допущена ошибка.";
         addMessage(templateText);
         ServerClipboard.copyTextToClipboard(templateText);
     }
-    // Функция для копирования шаблонного текста
+
     private static void copyTemplateText() {
         String templateText =
                 "Далее буду отправлять задания которые выдают на собеседовании. \n" +
                         "Необходимо будет написать решение задачи на языке Java без каких либо комментариев, на основании шаблона кода. \n" +
                         "Все классы должны содержать гетеры и сеттера, и модификаторы\n" +
                         "При написании кода, расставь нормально пробелы.\n" +
-                        "Если  решение задачи требует только удаление  комментария /* .... */ и замены нового кода, тогда нужно только показать фрагмент кода, который будет вставлен в замен блока комментария(+ список новых импортов в начало файла, если оно нужно), иначе показывать полностью решение (весь листинг решаемой задачи)\n" +
+                        "Если решение задачи требует только удаление комментария /* .... */ и замены нового кода, тогда нужно только показать фрагмент кода, который будет вставлен в замен блока комментария(+ список новых импортов в начало файла, если оно нужно), иначе показывать полностью решение (весь листинг решаемой задачи)\n" +
                         "Имена переменных нужно писать осмысленные в кэмэлкейсе с маленькой буквы.\n" +
-                        "При написании нужно учитывать следующие  пункты:\n" +
+                        "При написании нужно учитывать следующие пункты:\n" +
                         "1) Сначала очень коротко сформулируйте решение вслух до набора кода\n" +
                         "2) Пишите читаемый код, не переусложните его\n" +
                         "3) Учитывайте основные краевые случаи, используйте тест‑кейсы\n" +
                         "4) При необходимости использовать String.split()\n" +
-                        "Далее буду  присылать задания. Жди";
+                        "Далее буду присылать задания. Жди";
 
         ServerClipboard.copyTextToClipboard(templateText);
     }
@@ -722,6 +684,7 @@ public class ServerClipboard {
         System.out.println("Доступные методы:");
         System.out.println("1. GET /?text=текст");
         System.out.println("2. POST / с текстом в теле");
+        System.out.println("3. POST /api/recognize с JSON форматом");
         System.out.println("Поддерживаемые команды:");
         System.out.println("- SEND(IP:PORT):текст - отправить текст (добавляется в историю)");
         System.out.println("- SOUND(IP:PORT):текст - озвучить текст (НЕ добавляется в историю)");
@@ -785,6 +748,237 @@ public class ServerClipboard {
         System.out.println("Сервер остановлен");
     }
 
+    private static void updatePartialMessage(String id, String text, String timestamp) {
+        SwingUtilities.invokeLater(() -> {
+            MessageBlock existingBlock = partialMessages.get(id);
+
+            if (existingBlock != null) {
+                existingBlock.updateText(text, timestamp);
+            } else {
+                MessageBlock block = new MessageBlock(text, timestamp, true);
+                partialMessages.put(id, block);
+                messageBlocks.add(block);
+                messagesPanel.add(block.getPanel());
+
+                JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, messagesPanel);
+                if (scrollPane != null) {
+                    JScrollBar vertical = scrollPane.getVerticalScrollBar();
+                    vertical.setValue(vertical.getMaximum());
+                }
+            }
+
+            messagesPanel.revalidate();
+            messagesPanel.repaint();
+        });
+    }
+
+    private static void addFinalMessage(String id, String text, String timestamp) {
+        SwingUtilities.invokeLater(() -> {
+            MessageBlock partialBlock = partialMessages.remove(id);
+            if (partialBlock != null) {
+                messageBlocks.remove(partialBlock);
+                messagesPanel.remove(partialBlock.getPanel());
+            }
+
+            MessageBlock block = new MessageBlock(text, timestamp, false);
+            messageBlocks.add(block);
+            messagesPanel.add(block.getPanel());
+
+            JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, messagesPanel);
+            if (scrollPane != null) {
+                JScrollBar vertical = scrollPane.getVerticalScrollBar();
+                vertical.setValue(vertical.getMaximum());
+            }
+
+            messagesPanel.revalidate();
+            messagesPanel.repaint();
+        });
+    }
+
+    private static void addMessage(String text) {
+        for (MessageBlock block : messageBlocks) {
+            if (block.getText().equals(text)) {
+                System.out.println("Сообщение уже существует: " + text);
+                return;
+            }
+        }
+
+        MessageBlock block = new MessageBlock(text);
+        messageBlocks.add(block);
+        messagesPanel.add(block.getPanel());
+        messagesPanel.revalidate();
+        messagesPanel.repaint();
+
+        JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, messagesPanel);
+        if (scrollPane != null) {
+            JScrollBar vertical = scrollPane.getVerticalScrollBar();
+            vertical.setValue(vertical.getMaximum());
+        }
+    }
+
+    private static void clearAllMessages() {
+        messageBlocks.clear();
+        partialMessages.clear();
+        messagesPanel.removeAll();
+        messagesPanel.revalidate();
+        messagesPanel.repaint();
+    }
+
+    // ======================== КЛАСС MESSAGEBLOCK ========================
+
+    private static class MessageBlock {
+        private JPanel panel;
+        private JTextArea textArea;
+        private JLabel copyIndicator;
+        private String text;
+        private JLabel timestampLabel;
+        private boolean isPartial;
+
+        public MessageBlock(String text, String timestamp, boolean isPartial) {
+            this.text = text;
+            this.isPartial = isPartial;
+            createUI(timestamp);
+        }
+
+        public MessageBlock(String text) {
+            this(text, new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()), false);
+        }
+
+        private void createUI(String timestamp) {
+            panel = new JPanel(new BorderLayout(5, 0));
+
+            if (isPartial) {
+                panel.setBackground(new Color(255, 255, 200));
+                panel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(255, 200, 100)),
+                        BorderFactory.createEmptyBorder(5, 5, 5, 5)
+                ));
+            } else {
+                panel.setBackground(Color.WHITE);
+                panel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(200, 200, 200)),
+                        BorderFactory.createEmptyBorder(5, 5, 5, 5)
+                ));
+            }
+
+            JPanel leftPanel = new JPanel(new BorderLayout());
+            leftPanel.setPreferredSize(new Dimension(120, 80));
+            leftPanel.setBackground(panel.getBackground());
+
+            JButton deleteButton = new JButton("X");
+            deleteButton.setMargin(new Insets(2, 5, 2, 5));
+            deleteButton.setForeground(Color.RED);
+            deleteButton.setPreferredSize(new Dimension(40, 25));
+            deleteButton.addActionListener(e -> removeMessage());
+
+            timestampLabel = new JLabel(timestamp);
+            timestampLabel.setFont(new Font("Arial", Font.PLAIN, 10));
+            timestampLabel.setForeground(Color.GRAY);
+            timestampLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+            leftPanel.add(deleteButton, BorderLayout.NORTH);
+            leftPanel.add(timestampLabel, BorderLayout.SOUTH);
+
+            textArea = new JTextArea(text);
+            textArea.setRows(3);
+            textArea.setLineWrap(true);
+            textArea.setWrapStyleWord(true);
+            textArea.setEditable(false);
+            textArea.setMargin(new Insets(5, 5, 5, 5));
+            textArea.setBackground(panel.getBackground());
+
+            textArea.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 1) {
+                        copyToClipboard();
+                        showCopyIndicator();
+                    }
+                }
+            });
+
+            JScrollPane textScroll = new JScrollPane(textArea);
+            textScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+            textScroll.setPreferredSize(new Dimension(400, 80));
+
+            JPanel rightPanel = new JPanel(new BorderLayout());
+            rightPanel.setPreferredSize(new Dimension(50, 80));
+            rightPanel.setBackground(panel.getBackground());
+
+            copyIndicator = new JLabel("✓");
+            copyIndicator.setFont(new Font("Arial", Font.BOLD, 16));
+            copyIndicator.setForeground(new Color(0, 150, 0));
+            copyIndicator.setVisible(false);
+            copyIndicator.setHorizontalAlignment(SwingConstants.CENTER);
+
+            rightPanel.add(copyIndicator, BorderLayout.NORTH);
+
+            panel.add(leftPanel, BorderLayout.WEST);
+            panel.add(textScroll, BorderLayout.CENTER);
+            panel.add(rightPanel, BorderLayout.EAST);
+
+            panel.setToolTipText("Кликните на текст для копирования в буфер обмена");
+        }
+
+        public void updateText(String newText, String newTimestamp) {
+            this.text = newText;
+            SwingUtilities.invokeLater(() -> {
+                textArea.setText(newText);
+                timestampLabel.setText(newTimestamp);
+                panel.setBackground(new Color(255, 255, 150));
+                textArea.setBackground(new Color(255, 255, 150));
+                Timer timer = new Timer(500, e -> {
+                    panel.setBackground(new Color(255, 255, 200));
+                    textArea.setBackground(new Color(255, 255, 200));
+                });
+                timer.setRepeats(false);
+                timer.start();
+            });
+        }
+
+        private void showCopyIndicator() {
+            copyIndicator.setVisible(true);
+            Timer timer = new Timer(2000, e -> copyIndicator.setVisible(false));
+            timer.setRepeats(false);
+            timer.start();
+        }
+
+        private void removeMessage() {
+            messageBlocks.remove(this);
+            if (isPartial) {
+                String idToRemove = null;
+                for (Map.Entry<String, MessageBlock> entry : partialMessages.entrySet()) {
+                    if (entry.getValue() == this) {
+                        idToRemove = entry.getKey();
+                        break;
+                    }
+                }
+                if (idToRemove != null) {
+                    partialMessages.remove(idToRemove);
+                }
+            }
+            messagesPanel.remove(panel);
+            messagesPanel.revalidate();
+            messagesPanel.repaint();
+        }
+
+        private void copyToClipboard() {
+            StringSelection stringSelection = new StringSelection(text);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
+            System.out.println("Текст скопирован в буфер обмена: " + text.substring(0, Math.min(50, text.length())) + "...");
+        }
+
+        public JPanel getPanel() {
+            return panel;
+        }
+
+        public String getText() {
+            return text;
+        }
+    }
+
+    // ======================== КЛАСС CLIENTHANDLER ========================
+
     private static class ClientHandler implements Runnable {
         private Socket clientSocket;
 
@@ -822,6 +1016,13 @@ public class ServerClipboard {
 
                 String message = null;
 
+                // Обработка API /api/recognize
+                if (url.startsWith("/api/recognize")) {
+                    handleApiRecognize(method, contentLength, in, out);
+                    return;
+                }
+
+                // Обработка обычных запросов
                 if ("GET".equalsIgnoreCase(method)) {
                     if (url.contains("?")) {
                         String query = url.substring(url.indexOf('?') + 1);
@@ -844,7 +1045,21 @@ public class ServerClipboard {
                         int read = in.read(buffer, 0, contentLength);
                         if (read > 0) {
                             body.append(buffer, 0, read);
-                            message = body.toString().trim();
+                            String rawMessage = body.toString().trim();
+
+                            try {
+                                message = URLDecoder.decode(rawMessage, "UTF-8");
+                                if (message.startsWith("text=")) {
+                                    message = message.substring(5);
+                                }
+                            } catch (Exception e) {
+                                message = rawMessage;
+                            }
+
+                            // НОВЫЙ КОД: Обработка partial и recognized сообщений
+                            if (message != null) {
+                                message = processPartialRecognizedMessage(message);
+                            }
                         }
                     }
                 } else if ("OPTIONS".equalsIgnoreCase(method)) {
@@ -858,14 +1073,11 @@ public class ServerClipboard {
                     String finalMessage = message;
                     InetAddress clientAddress = clientSocket.getInetAddress();
 
-                    // Проверяем, является ли сообщение командой SOUND
                     if (finalMessage.startsWith("SOUND:")) {
-                        // Только озвучивание, без добавления в историю
                         processSoundCommand(finalMessage, clientAddress);
                     } else {
-                        // Обычное сообщение (SEND или другой текст) - добавляем в историю
                         SwingUtilities.invokeLater(() -> addMessage(finalMessage));
-                        System.out.println("Получено сообщение от " + clientAddress + ": " + message);
+                        System.out.println("Получено сообщение от " + clientAddress + ": " + finalMessage);
                     }
                 }
 
@@ -893,6 +1105,54 @@ public class ServerClipboard {
             }
         }
 
+        private void handleApiRecognize(String method, int contentLength, BufferedReader in, PrintWriter out) {
+            if (!"POST".equalsIgnoreCase(method)) {
+                sendErrorResponse(out, 405, "Method Not Allowed");
+                return;
+            }
+
+            try {
+                StringBuilder body = new StringBuilder();
+                char[] buffer = new char[contentLength];
+                int read = in.read(buffer, 0, contentLength);
+                if (read > 0) {
+                    body.append(buffer, 0, read);
+                }
+
+                String jsonString = body.toString();
+                JSONObject json = new JSONObject(jsonString);
+
+                String type = json.optString("type", "final");
+                String id = json.optString("id", UUID.randomUUID().toString());
+                String text = json.optString("text", "");
+                String timestamp = json.optString("timestamp",
+                        new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()));
+
+                if (text.isEmpty()) {
+                    sendErrorResponse(out, 400, "Empty text");
+                    return;
+                }
+
+                if ("partial".equals(type)) {
+                    updatePartialMessage(id, text, timestamp);
+                    System.out.println("[PARTIAL] ID: " + id + " Текст: " + text);
+                } else {
+                    addFinalMessage(id, text, timestamp);
+                    System.out.println("[FINAL] ID: " + id + " Текст: " + text);
+                }
+
+                sendCorsHeaders(out);
+                out.println("Content-Type: application/json; charset=utf-8");
+                out.println();
+                out.println("{\"status\":\"ok\"}");
+                out.flush();
+
+            } catch (Exception e) {
+                System.err.println("Ошибка обработки API: " + e.getMessage());
+                sendErrorResponse(out, 500, "Internal Server Error");
+            }
+        }
+
         private void sendCorsHeaders(PrintWriter out) {
             out.println("HTTP/1.1 200 OK");
             out.println("Access-Control-Allow-Origin: *");
@@ -913,133 +1173,51 @@ public class ServerClipboard {
             out.flush();
         }
     }
+    private static String processPartialRecognizedMessage(String message) {
+        if (message == null) return message;
 
-    private static void addMessage(String text) {
-        for (MessageBlock block : messageBlocks) {
-            if (block.text.equals(text)) {
-                System.out.println("Сообщение уже существует: " + text);
-                return;
+        // Проверяем, начинается ли сообщение с [PARTIAL]
+        if (message.startsWith("[PARTIAL]")) {
+            String partialText = message.substring(9).trim(); // Убираем "[PARTIAL]"
+
+            if (currentPartialId == null) {
+                currentPartialId = UUID.randomUUID().toString();
+                currentPartialText = "";
             }
+
+            currentPartialText = partialText;
+
+            // Обновляем или создаем partial сообщение
+            updatePartialMessage(currentPartialId, currentPartialText,
+                    new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()));
+
+            System.out.println("[PARTIAL] Обновление: " + currentPartialText);
+
+            // Возвращаем null, чтобы не добавлять отдельное сообщение
+            return null;
+        }
+        // Проверяем, начинается ли сообщение с [RECOGNIZED]
+        else if (message.startsWith("[RECOGNIZED]")) {
+            String finalText = message.substring(12).trim(); // Убираем "[RECOGNIZED]"
+
+            if (currentPartialId != null) {
+                // Заменяем partial сообщение на финальное
+                addFinalMessage(currentPartialId, finalText,
+                        new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()));
+                System.out.println("[RECOGNIZED] Финализация: " + finalText);
+
+                // Сбрасываем текущую partial
+                currentPartialId = null;
+                currentPartialText = "";
+            } else {
+                // Если не было partial, просто добавляем сообщение
+                addMessage(finalText);
+            }
+
+            // Возвращаем null, чтобы не добавлять отдельное сообщение
+            return null;
         }
 
-        MessageBlock block = new MessageBlock(text);
-        messageBlocks.add(block);
-
-        messagesPanel.add(block.getPanel());
-        messagesPanel.revalidate();
-        messagesPanel.repaint();
-
-        JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, messagesPanel);
-        if (scrollPane != null) {
-            JScrollBar vertical = scrollPane.getVerticalScrollBar();
-            vertical.setValue(vertical.getMaximum());
-        }
-    }
-
-    private static void clearAllMessages() {
-        messageBlocks.clear();
-        messagesPanel.removeAll();
-        messagesPanel.revalidate();
-        messagesPanel.repaint();
-    }
-
-    private static class MessageBlock {
-        private JPanel panel;
-        private JTextArea textArea;
-        private JLabel copyIndicator;
-        private String text;
-        private JLabel timestampLabel;
-
-        public MessageBlock(String text) {
-            this.text = text;
-            createUI();
-        }
-
-        private void createUI() {
-            panel = new JPanel(new BorderLayout(5, 0));
-            panel.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(new Color(200, 200, 200)),
-                    BorderFactory.createEmptyBorder(5, 5, 5, 5)
-            ));
-
-            JPanel leftPanel = new JPanel(new BorderLayout());
-            leftPanel.setPreferredSize(new Dimension(120, 80));
-
-            JButton deleteButton = new JButton("X");
-            deleteButton.setMargin(new Insets(2, 5, 2, 5));
-            deleteButton.setForeground(Color.RED);
-            deleteButton.setPreferredSize(new Dimension(40, 25));
-            deleteButton.addActionListener(e -> removeMessage());
-
-            timestampLabel = new JLabel(new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()));
-            timestampLabel.setFont(new Font("Arial", Font.PLAIN, 10));
-            timestampLabel.setForeground(Color.GRAY);
-            timestampLabel.setHorizontalAlignment(SwingConstants.CENTER);
-
-            leftPanel.add(deleteButton, BorderLayout.NORTH);
-            leftPanel.add(timestampLabel, BorderLayout.SOUTH);
-
-            textArea = new JTextArea(text);
-            textArea.setRows(3);
-            textArea.setLineWrap(true);
-            textArea.setWrapStyleWord(true);
-            textArea.setEditable(false);
-            textArea.setMargin(new Insets(5, 5, 5, 5));
-
-            textArea.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 1) {
-                        copyToClipboard();
-                        showCopyIndicator();
-                    }
-                }
-            });
-
-            JScrollPane textScroll = new JScrollPane(textArea);
-            textScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-            textScroll.setPreferredSize(new Dimension(400, 80));
-
-            JPanel rightPanel = new JPanel(new BorderLayout());
-            rightPanel.setPreferredSize(new Dimension(50, 80));
-
-            copyIndicator = new JLabel("✓");
-            copyIndicator.setFont(new Font("Arial", Font.BOLD, 16));
-            copyIndicator.setForeground(new Color(0, 150, 0));
-            copyIndicator.setVisible(false);
-            copyIndicator.setHorizontalAlignment(SwingConstants.CENTER);
-
-            rightPanel.add(copyIndicator, BorderLayout.NORTH);
-
-            panel.add(leftPanel, BorderLayout.WEST);
-            panel.add(textScroll, BorderLayout.CENTER);
-            panel.add(rightPanel, BorderLayout.EAST);
-
-            panel.setToolTipText("Кликните на текст для копирования в буфер обмена");
-        }
-
-        private void showCopyIndicator() {
-            copyIndicator.setVisible(true);
-            Timer timer = new Timer(2000, e -> copyIndicator.setVisible(false));
-            timer.setRepeats(false);
-            timer.start();
-        }
-
-        private void removeMessage() {
-            messageBlocks.remove(this);
-            messagesPanel.remove(panel);
-            messagesPanel.revalidate();
-            messagesPanel.repaint();
-        }
-
-        private void copyToClipboard() {
-            StringSelection stringSelection = new StringSelection(text);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
-            System.out.println("Текст скопирован в буфер обмена: " + text.substring(0, Math.min(50, text.length())) + "...");
-        }
-
-        public JPanel getPanel() {
-            return panel;
-        }
+        return message;
     }
 }
