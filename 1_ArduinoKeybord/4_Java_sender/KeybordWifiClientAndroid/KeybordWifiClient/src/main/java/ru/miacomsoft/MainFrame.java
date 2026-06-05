@@ -32,6 +32,8 @@ public class MainFrame extends JFrame {
     private JButton switchLanguageButton;
     private JLabel languageSwitchStatusLabel;
     private Timer languageSwitchTimer;
+    private JSlider speedSlider;
+    private JLabel speedValueLabel;
 
     // Режимы
     private JRadioButton wifiModeRadio;
@@ -336,6 +338,16 @@ public class MainFrame extends JFrame {
         buttonPanel.add(lineNumberLabel);
         buttonPanel.add(timeRemainingLabel);
 
+        // Добавляем контроль скорости
+        setupSpeedControl();
+        JPanel speedPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        speedPanel.setBorder(BorderFactory.createTitledBorder("Скорость отправки"));
+        speedPanel.add(new JLabel("⚡"));
+        speedPanel.add(speedSlider);
+        speedPanel.add(speedValueLabel);
+        buttonPanel.add(speedPanel);
+
+
         JPanel virtualKeyboardPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         virtualKeyboardPanel.setBorder(BorderFactory.createTitledBorder("Виртуальная клавиатура"));
         virtualKeyboardPanel.add(virtualKeyboardCheckBox);
@@ -368,6 +380,7 @@ public class MainFrame extends JFrame {
         add(connectionPanel, BorderLayout.NORTH);
         add(new JScrollPane(messageTextPane), BorderLayout.CENTER);
         add(southWrapperPanel, BorderLayout.SOUTH);
+
 
         ((JComponent)getContentPane()).setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -720,5 +733,30 @@ public class MainFrame extends JFrame {
         });
     }
 
+    private void setupSpeedControl() {
+        speedSlider = new JSlider(JSlider.HORIZONTAL, TransmissionModel.MIN_DELAY, TransmissionModel.MAX_DELAY, TransmissionModel.BASE_DELAY);
+        speedSlider.setMajorTickSpacing(50);
+        speedSlider.setMinorTickSpacing(25);
+        speedSlider.setPaintTicks(true);
+        speedSlider.setPaintLabels(true);
+        speedSlider.setSnapToTicks(true);
 
+        // Создаем словарь для меток
+        java.util.Hashtable<Integer, JLabel> labelTable = new java.util.Hashtable<>();
+        labelTable.put(50, new JLabel("Быстро"));
+        labelTable.put(100, new JLabel("Норм"));
+        labelTable.put(200, new JLabel("Медл"));
+        labelTable.put(300, new JLabel("Очень"));
+        labelTable.put(500, new JLabel("Макс"));
+        speedSlider.setLabelTable(labelTable);
+
+        speedSlider.addChangeListener(e -> {
+            int delay = speedSlider.getValue();
+            model.setBaseDelay(delay);
+            speedValueLabel.setText(delay + " мс");
+        });
+
+        speedValueLabel = new JLabel(TransmissionModel.BASE_DELAY + " мс");
+        speedValueLabel.setFont(speedValueLabel.getFont().deriveFont(Font.BOLD, 11f));
+    }
 }

@@ -18,6 +18,7 @@ public class TransmissionModel {
     public static final int MIN_DELAY = 50;
     public static final int MAX_DELAY = 500;
     public static final int RANDOM_DELAY_RANGE = 300;
+    private int currentBaseDelay = BASE_DELAY;
 
     // Транспортные объекты
     private Socket wifiSocket;
@@ -178,22 +179,6 @@ public class TransmissionModel {
         }
     }
 
-    // Отправка байта
-    public void sendByte(int value) throws IOException {
-        if (isWifiMode) {
-            sendByteWifi(value);
-        } else {
-            sendByteSerial(value);
-        }
-
-        int delay = getRandomDelay(BASE_DELAY);
-        try {
-            Thread.sleep(delay);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Transmission interrupted", e);
-        }
-    }
 
     private void sendByteWifi(int value) throws IOException {
         if (value < 0 || value > 255) {
@@ -287,105 +272,6 @@ public class TransmissionModel {
         transmissionThread.start();
     }
 
-    private void transmitMessage(String message) throws InterruptedException, IOException {
-        message = message.replaceAll("[\\p{C}&&[^\n]]", "");
-        message = message.replaceAll("(?m)^[ \\t]+$", "");
-        String[] lines = message.split("\n");
-        int finalLineNum = 1;
-        int charsSent = 0;
-
-        SwingUtilities.invokeLater(() -> {
-            if (onLineNumberUpdate != null) onLineNumberUpdate.accept(1);
-        });
-
-        for (char c : message.toCharArray()) {
-            if (isStopped.get()) break;
-
-            while (isPaused.get() && !isStopped.get()) {
-                Thread.sleep(100);
-            }
-
-            if (isStopped.get()) break;
-
-            System.out.println("Отправка символа: " + c + " (IDE mode: " + ideMode + ")");
-
-            if (c == 10) {
-                Thread.sleep(BASE_DELAY);
-                sendByte(32);
-                Thread.sleep(BASE_DELAY);
-                finalLineNum += 1;
-                int finalLineNum1 = finalLineNum;
-                SwingUtilities.invokeLater(() -> {
-                    if (onLineNumberUpdate != null) onLineNumberUpdate.accept(finalLineNum1);
-                });
-            }
-
-            if (isLayoutSwitchChar(c)) {
-                if (c == 207) {
-                    handleYoChar(c);
-                } else {
-                    sendByte(c);
-                    isEnglish = !isEnglish;
-                    SwingUtilities.invokeLater(() -> {
-                        if (onLayoutChanged != null) onLayoutChanged.run();
-                    });
-                    Thread.sleep(SWITCH_LAYOUT_DELAY);
-                }
-                continue;
-            }
-
-            // Обработка символов с учетом IDE режима
-            if (ideMode && isSpecialCharacterForIDE(c)) {
-                boolean isRussian = isCyrillic(c);
-                if (isRussian) {
-                    if (isEnglish) switchLayout();
-                    sendRussianChar(c);
-                } else {
-                    if (!isEnglish) switchLayout();
-                    sendByte(c);
-                }
-
-                Thread.sleep(SPECIAL_CHAR_DELAY);
-                sendByte(212);
-                Thread.sleep(SPECIAL_CHAR_DELAY);
-            } else {
-                boolean isRussian = isCyrillic(c);
-                if (isRussian) {
-                    if (isEnglish) switchLayout();
-                    sendRussianChar(c);
-                } else {
-                    if (!isEnglish) switchLayout();
-                    sendByte(c);
-                }
-            }
-
-            final int position = currentTransmissionPosition;
-            SwingUtilities.invokeLater(() -> {
-                if (onCharacterHighlight != null) onCharacterHighlight.accept(position, 1);
-            });
-            currentTransmissionPosition++;
-            charsSent++;
-
-            if (charsSent % 10 == 0) {
-                updateRemainingTime(charsSent, totalCharactersToSend);
-            }
-
-            if (c == 10) {
-                Thread.sleep(SPECIAL_CHAR_DELAY);
-                sendByte(210);
-                Thread.sleep(SPECIAL_CHAR_DELAY);
-            }
-        }
-
-        if (!isEnglish) {
-            Thread.sleep(SWITCH_LAYOUT_DELAY / 2);
-            switchLayout();
-        }
-
-        SwingUtilities.invokeLater(() -> {
-            if (onTimeRemainingUpdate != null) onTimeRemainingUpdate.accept("Осталось: 00:00");
-        });
-    }
 
     public void togglePause() {
         if (!isConnected() || transmissionThread == null || !transmissionThread.isAlive()) {
@@ -739,22 +625,6 @@ public class TransmissionModel {
         }
     }
 
-    public void sendCustomBytes(byte[] bytes) throws IOException, InterruptedException {
-        if (!isConnected()) throw new IllegalStateException("Не подключено");
-
-        System.out.println("Отправка " + bytes.length + " байт:");
-        for (int i = 0; i < bytes.length; i++) {
-            int value = bytes[i] & 0xFF;
-            System.out.println("  Байт " + (i+1) + ": " + value + " (0x" + Integer.toHexString(value) + ")");
-            sendByte(value);
-
-            // Задержка между байтами (можно сделать настраиваемой)
-            if (i < bytes.length - 1) {
-                Thread.sleep(BASE_DELAY);
-            }
-        }
-        System.out.println("Все байты отправлены");
-    }
     
     
    //public void sendCustomBytes(byte[] bytes) throws IOException, InterruptedException {
@@ -769,5 +639,154 @@ public class TransmissionModel {
     public void sendSingleByte(int value) throws IOException {
         if (!isConnected()) throw new IllegalStateException("Не подключено");
         sendByte(value);
+    }
+    public int getCurrentBaseDelay() {
+        return currentBaseDelay;
+    }
+
+    public void setBaseDelay(int delay) {
+        this.currentBaseDelay = Math.max(MIN_DELAY, Math.min(MAX_DELAY, delay));
+        System.out.println("Скорость отправки изменена: " + currentBaseDelay + " мс");
+    }
+
+    // Обновите метод transmitMessage - замените все BASE_DELAY на currentBaseDelay
+    private void transmitMessage(String message) throws InterruptedException, IOException {
+        message = message.replaceAll("[\\p{C}&&[^\n]]", "");
+        message = message.replaceAll("(?m)^[ \\t]+$", "");
+        String[] lines = message.split("\n");
+        int finalLineNum = 1;
+        int charsSent = 0;
+
+        SwingUtilities.invokeLater(() -> {
+            if (onLineNumberUpdate != null) onLineNumberUpdate.accept(1);
+        });
+
+        for (char c : message.toCharArray()) {
+            if (isStopped.get()) break;
+
+            while (isPaused.get() && !isStopped.get()) {
+                Thread.sleep(100);
+            }
+
+            if (isStopped.get()) break;
+
+            System.out.println("Отправка символа: " + c + " (IDE mode: " + ideMode + ")");
+
+            if (c == 10) {
+                Thread.sleep(currentBaseDelay);  // изменено
+                sendByte(32);
+                Thread.sleep(currentBaseDelay);  // изменено
+                finalLineNum += 1;
+                int finalLineNum1 = finalLineNum;
+                SwingUtilities.invokeLater(() -> {
+                    if (onLineNumberUpdate != null) onLineNumberUpdate.accept(finalLineNum1);
+                });
+            }
+
+            if (isLayoutSwitchChar(c)) {
+                if (c == 207) {
+                    handleYoChar(c);
+                } else {
+                    sendByte(c);
+                    isEnglish = !isEnglish;
+                    SwingUtilities.invokeLater(() -> {
+                        if (onLayoutChanged != null) onLayoutChanged.run();
+                    });
+                    Thread.sleep(SWITCH_LAYOUT_DELAY);
+                }
+                continue;
+            }
+
+            // Обработка символов с учетом IDE режима
+            if (ideMode && isSpecialCharacterForIDE(c)) {
+                boolean isRussian = isCyrillic(c);
+                if (isRussian) {
+                    if (isEnglish) switchLayout();
+                    sendRussianChar(c);
+                } else {
+                    if (!isEnglish) switchLayout();
+                    sendByte(c);
+                }
+
+                Thread.sleep(SPECIAL_CHAR_DELAY);
+                sendByte(212);
+                Thread.sleep(SPECIAL_CHAR_DELAY);
+            } else {
+                boolean isRussian = isCyrillic(c);
+                if (isRussian) {
+                    if (isEnglish) switchLayout();
+                    sendRussianChar(c);
+                } else {
+                    if (!isEnglish) switchLayout();
+                    sendByte(c);
+                }
+            }
+
+            final int position = currentTransmissionPosition;
+            SwingUtilities.invokeLater(() -> {
+                if (onCharacterHighlight != null) onCharacterHighlight.accept(position, 1);
+            });
+            currentTransmissionPosition++;
+            charsSent++;
+
+            if (charsSent % 10 == 0) {
+                updateRemainingTime(charsSent, totalCharactersToSend);
+            }
+
+            if (c == 10) {
+                Thread.sleep(SPECIAL_CHAR_DELAY);
+                sendByte(210);
+                Thread.sleep(SPECIAL_CHAR_DELAY);
+            }
+
+            // Добавьте задержку между символами
+            Thread.sleep(currentBaseDelay);
+        }
+
+        if (!isEnglish) {
+            Thread.sleep(SWITCH_LAYOUT_DELAY / 2);
+            switchLayout();
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            if (onTimeRemainingUpdate != null) onTimeRemainingUpdate.accept("Осталось: 00:00");
+        });
+    }
+
+    // Обновите метод sendByte, чтобы использовать currentBaseDelay вместо BASE_DELAY
+    public void sendByte(int value) throws IOException {
+        if (isWifiMode) {
+            sendByteWifi(value);
+        } else {
+            sendByteSerial(value);
+        }
+
+        int delay = getRandomDelay(currentBaseDelay);  // изменено
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Transmission interrupted", e);
+        }
+    }
+
+
+
+    // Обновите метод sendCustomBytes для использования currentBaseDelay
+    public void sendCustomBytes(byte[] bytes) throws IOException, InterruptedException {
+        if (!isConnected()) throw new IllegalStateException("Не подключено");
+
+        System.out.println("Отправка " + bytes.length + " байт:");
+        for (int i = 0; i < bytes.length; i++) {
+            int value = bytes[i] & 0xFF;
+            System.out.println("  Байт " + (i+1) + ": " + value + " (0x" + Integer.toHexString(value) + ")");
+            sendByte(value);
+
+            // Задержка между байтами
+            if (i < bytes.length - 1) {
+                Thread.sleep(currentBaseDelay);  // изменено
+            }
+        }
+        System.out.println("Все байты отправлены");
     }
 }
