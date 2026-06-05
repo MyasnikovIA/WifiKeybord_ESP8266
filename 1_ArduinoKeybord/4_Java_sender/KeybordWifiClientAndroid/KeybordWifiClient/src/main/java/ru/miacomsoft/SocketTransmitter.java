@@ -49,6 +49,12 @@ public class SocketTransmitter extends JFrame {
     private boolean isEnglish = true;
     private boolean wasTransmissionPausedByVirtualKeyboard = false;
 
+    private JButton directKeyboardButton;
+    private JLabel directKeyboardStatusLabel;
+    private AtomicBoolean isDirectKeyboardActive = new AtomicBoolean(false);
+    private KeyboardFocusManager directKeyboardManager;
+    private KeyEventDispatcher directKeyboardDispatcher;
+
     // Для подсветки отправленных символов
     private int currentTransmissionPosition = 0;
     private int totalCharactersToSend = 0;
@@ -125,6 +131,16 @@ public class SocketTransmitter extends JFrame {
         startButton.addActionListener(e -> startTransmission());
 
         updateButtonStates(false, false);
+
+        directKeyboardButton = new JButton("⌨️ Прямая клавиатура");
+        directKeyboardButton.setToolTipText("Включить/выключить прямую трансляцию клавиш на виртуальную клавиатуру");
+        directKeyboardButton.setBackground(new Color(255, 200, 100));
+        directKeyboardButton.addActionListener(e -> toggleDirectKeyboard());
+
+        directKeyboardStatusLabel = new JLabel("Выкл");
+        directKeyboardStatusLabel.setForeground(Color.GRAY);
+        directKeyboardStatusLabel.setFont(directKeyboardStatusLabel.getFont().deriveFont(Font.BOLD, 11f));
+        directKeyboardStatusLabel.setPreferredSize(new Dimension(35, 20));
     }
 
     private void layoutComponents() {
@@ -164,6 +180,23 @@ public class SocketTransmitter extends JFrame {
         add(connectionPanel, BorderLayout.NORTH);
         add(new JScrollPane(messageTextPane), BorderLayout.CENTER); // JTextPane в JScrollPane
         add(controlPanel, BorderLayout.SOUTH);
+
+        JPanel directKeyboardPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        directKeyboardPanel.setBorder(BorderFactory.createTitledBorder("Прямая клавиатура"));
+        directKeyboardPanel.add(directKeyboardButton);
+        directKeyboardPanel.add(directKeyboardStatusLabel);
+
+        JPanel southWrapperPanel = new JPanel(new BorderLayout());
+        southWrapperPanel.add(controlPanel, BorderLayout.CENTER);
+
+        JPanel rightPanels = new JPanel(new GridLayout(2, 1, 5, 5));
+        rightPanels.add(virtualKeyboardPanel);
+        rightPanels.add(directKeyboardPanel);
+        southWrapperPanel.add(rightPanels, BorderLayout.EAST);
+
+        add(connectionPanel, BorderLayout.NORTH);
+        add(new JScrollPane(messageTextPane), BorderLayout.CENTER);
+        add(southWrapperPanel, BorderLayout.SOUTH);
 
         ((JComponent)getContentPane()).setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
     }
@@ -232,6 +265,44 @@ public class SocketTransmitter extends JFrame {
                 e.printStackTrace();
             }
         });
+    }
+    private void toggleDirectKeyboard() {
+        if (!isConnected.get()) {
+            JOptionPane.showMessageDialog(this,
+                    "Сначала подключитесь к серверу!",
+                    "Ошибка",
+                    JOptionPane.WARNING_MESSAGE);
+            directKeyboardButton.setSelected(false);
+            return;
+        }
+
+        if (!isVirtualKeyboardActive.get()) {
+            int result = JOptionPane.showConfirmDialog(this,
+                    "Для работы прямой клавиатуры необходимо включить виртуальную клавиатуру.\n" +
+                            "Включить виртуальную клавиатуру?",
+                    "Включить виртуальную клавиатуру",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+
+            if (result == JOptionPane.YES_OPTION) {
+                virtualKeyboardCheckBox.setSelected(true);
+                toggleVirtualKeyboard();
+            } else {
+                directKeyboardButton.setSelected(false);
+                return;
+            }
+        }
+
+        boolean newState = !isDirectKeyboardActive.get();
+        isDirectKeyboardActive.set(newState);
+
+        if (newState) {
+            enableDirectKeyboard();
+        } else {
+            disableDirectKeyboard();
+        }
+
+        updateDirectKeyboardUI();
     }
 
     // Метод для подсветки отправленного символа
@@ -354,6 +425,15 @@ public class SocketTransmitter extends JFrame {
             }
 
             updateButtonStates(true, transmissionThread != null && transmissionThread.isAlive());
+        }
+
+        if (!activated && isDirectKeyboardActive.get()) {
+            // Если выключаем виртуальную клавиатуру, выключаем и прямую
+            isDirectKeyboardActive.set(false);
+            disableDirectKeyboard();
+            updateDirectKeyboardUI();
+
+            showTemporaryNotification("Прямая клавиатура автоматически отключена", 2000);
         }
 
         updateVirtualKeyboardUI();
@@ -1197,6 +1277,12 @@ public class SocketTransmitter extends JFrame {
     }
 
     public void disconnect() {
+        if (isDirectKeyboardActive.get()) {
+            isDirectKeyboardActive.set(false);
+            disableDirectKeyboard();
+            updateDirectKeyboardUI();
+        }
+
         isConnected.set(false);
         isStopped.set(true);
         isVirtualKeyboardActive.set(false);
@@ -1516,7 +1602,9 @@ public class SocketTransmitter extends JFrame {
         if (outputStream != null) {
             outputStream.write(new byte[]{b});
             outputStream.flush();
-            System.out.println("Отправлен байт: " + value + " (0x" + Integer.toHexString(value) + ")");
+            System.out.println("✓✓✓ ОТПРАВЛЕН БАЙТ: " + value + " (0x" + Integer.toHexString(value) + ")");
+        } else {
+            System.err.println("✗✗✗ outputStream is NULL! Cannot send byte: " + value);
         }
 
         int delay = getRandomDelay(BASE_DELAY);
@@ -1547,5 +1635,314 @@ public class SocketTransmitter extends JFrame {
     public void dispose() {
         disconnect();
         super.dispose();
+    }
+
+
+    // Включение перехвата клавиш
+    private void enableDirectKeyboard() {
+        directKeyboardDispatcher = new KeyEventDispatcher() {
+            @Override
+            public boolean dispatchKeyEvent(KeyEvent e) {
+                if (!isDirectKeyboardActive.get() || !isConnected.get()) {
+                    return false;
+                }
+
+                // Не перехватываем клавиши, если фокус на кнопках управления
+                Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+                if (focusOwner instanceof JButton ||
+                        focusOwner instanceof JCheckBox ||
+                        focusOwner instanceof JTextField && focusOwner != messageTextPane) {
+                    return false;
+                }
+
+                // Специальная клавиша для выключения прямой клавиатуры (Scroll Lock)
+                if (e.getID() == KeyEvent.KEY_PRESSED && e.getKeyCode() == KeyEvent.VK_SCROLL_LOCK) {
+                    SwingUtilities.invokeLater(() -> {
+                        isDirectKeyboardActive.set(false);
+                        disableDirectKeyboard();
+                        updateDirectKeyboardUI();
+                        JOptionPane.showMessageDialog(SocketTransmitter.this,
+                                "Прямая клавиатура отключена (Scroll Lock)",
+                                "Информация",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    });
+                    return true;
+                }
+
+                // Для всех клавиш используем единый обработчик
+                if (e.getID() == KeyEvent.KEY_PRESSED || e.getID() == KeyEvent.KEY_RELEASED) {
+                    handleVirtualKeyboardEventDirect(e);
+                    return true;
+                }
+
+                return false;
+            }
+        };
+
+        KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                .addKeyEventDispatcher(directKeyboardDispatcher);
+
+        // Визуальная обратная связь
+        directKeyboardStatusLabel.setText("Вкл");
+        directKeyboardStatusLabel.setForeground(new Color(0, 180, 0));
+        directKeyboardButton.setBackground(new Color(100, 255, 100));
+        directKeyboardButton.setForeground(Color.BLACK);
+        directKeyboardButton.setText("⌨️ Прямая клавиатура (Вкл)");
+
+        // Показываем уведомление
+        showTemporaryNotification("Прямая клавиатура включена\nНажмите Scroll Lock для отключения", 3000);
+    }
+
+    // Отключение перехвата клавиш
+    private void disableDirectKeyboard() {
+        if (directKeyboardDispatcher != null) {
+            KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                    .removeKeyEventDispatcher(directKeyboardDispatcher);
+            directKeyboardDispatcher = null;
+        }
+
+        directKeyboardStatusLabel.setText("Выкл");
+        directKeyboardStatusLabel.setForeground(Color.GRAY);
+        directKeyboardButton.setBackground(new Color(255, 200, 100));
+        directKeyboardButton.setForeground(Color.BLACK);
+    }
+
+    // Обработчик для прямой клавиатуры (упрощенная версия)
+    private void handleVirtualKeyboardEventDirect(KeyEvent e) {
+        if (!isVirtualKeyboardActive.get() || !isConnected.get()) {
+            return;
+        }
+
+        int keyCode = e.getKeyCode();
+        boolean isSpecialKey = isSpecialActionKey(keyCode);
+
+        try {
+            // Явная обработка Backspace и Delete для KEY_PRESSED и KEY_RELEASED
+            if (keyCode == KeyEvent.VK_BACK_SPACE) {
+                if (e.getID() == KeyEvent.KEY_PRESSED) {
+                    System.out.println("Direct: Backspace PRESSED, sending 178");
+                    sendByte(178);
+                    Thread.sleep(VIRTUAL_KEY_DELAY);
+                }
+                return; // Возвращаемся в любом случае, чтобы не обрабатывать повторно
+            }
+            if (keyCode == KeyEvent.VK_DELETE) {
+                if (e.getID() == KeyEvent.KEY_PRESSED) {
+                    System.out.println("Direct: Delete PRESSED, sending 212");
+                    sendByte(212);
+                    Thread.sleep(VIRTUAL_KEY_DELAY);
+                }
+                return;
+            }
+
+            // Для остальных клавиш
+            if (e.getID() == KeyEvent.KEY_RELEASED && !isSpecialKey) {
+                processVirtualKeyReleaseDirect(e);
+            } else if (e.getID() == KeyEvent.KEY_PRESSED && (isSpecialKey || keyCode == KeyEvent.VK_SPACE)) {
+                processVirtualKeyPressDirect(e);
+            }
+        } catch (Exception ex) {
+            System.err.println("Ошибка в прямой клавиатуре: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    // Прямая обработка нажатия спецклавиш
+    private void processVirtualKeyPressDirect(KeyEvent e) throws IOException, InterruptedException {
+        int keyCode = e.getKeyCode();
+
+        // Отключаем обработку клавиш-модификаторов
+        if (keyCode == KeyEvent.VK_SHIFT || keyCode == KeyEvent.VK_CONTROL ||
+                keyCode == KeyEvent.VK_ALT || keyCode == KeyEvent.VK_WINDOWS) {
+            return;
+        }
+
+        // Обработка спецклавиш
+        switch (keyCode) {
+            case KeyEvent.VK_ENTER:
+                sendByte(176);
+                break;
+            case KeyEvent.VK_BACK_SPACE:
+                sendByte(178);
+                break;
+            case KeyEvent.VK_TAB:
+                sendByte(179);
+                break;
+            case KeyEvent.VK_SPACE:
+                sendByte(180);
+                break;
+            case KeyEvent.VK_CAPS_LOCK:
+                sendByte(134);
+                isEnglish = !isEnglish;
+                updateLayoutStatus();
+                break;
+            case KeyEvent.VK_HOME:
+                sendByte(210);
+                break;
+            case KeyEvent.VK_END:
+                sendByte(213);
+                break;
+            case KeyEvent.VK_PAGE_UP:
+                sendByte(211);
+                break;
+            case KeyEvent.VK_PAGE_DOWN:
+                sendByte(214);
+                break;
+            case KeyEvent.VK_UP:
+                sendByte(218);
+                break;
+            case KeyEvent.VK_DOWN:
+                sendByte(217);
+                break;
+            case KeyEvent.VK_LEFT:
+                sendByte(216);
+                break;
+            case KeyEvent.VK_RIGHT:
+                sendByte(215);
+                break;
+            case KeyEvent.VK_INSERT:
+                sendByte(209);
+                break;
+            case KeyEvent.VK_DELETE:
+                sendByte(212);
+                break;
+            case KeyEvent.VK_F1: sendByte(194); break;
+            case KeyEvent.VK_F2: sendByte(195); break;
+            case KeyEvent.VK_F3: sendByte(196); break;
+            case KeyEvent.VK_F4: sendByte(197); break;
+            case KeyEvent.VK_F5: sendByte(198); break;
+            case KeyEvent.VK_F6: sendByte(199); break;
+            case KeyEvent.VK_F7: sendByte(200); break;
+            case KeyEvent.VK_F8: sendByte(201); break;
+            case KeyEvent.VK_F9: sendByte(202); break;
+            case KeyEvent.VK_F10: sendByte(203); break;
+            case KeyEvent.VK_F11: sendByte(204); break;
+            case KeyEvent.VK_F12: sendByte(205); break;
+            case KeyEvent.VK_NUM_LOCK: sendByte(219); break;
+        }
+
+        Thread.sleep(VIRTUAL_KEY_DELAY);
+    }
+
+    // Прямая обработка отпускания клавиш
+    private void processVirtualKeyReleaseDirect(KeyEvent e) throws IOException, InterruptedException {
+        int keyCode = e.getKeyCode();
+        char keyChar = e.getKeyChar();
+
+        // Игнорируем модификаторы
+        if (keyCode == KeyEvent.VK_SHIFT || keyCode == KeyEvent.VK_CONTROL ||
+                keyCode == KeyEvent.VK_ALT || keyCode == KeyEvent.VK_WINDOWS) {
+            return;
+        }
+
+        // Обработка цифр
+        if (keyCode >= KeyEvent.VK_0 && keyCode <= KeyEvent.VK_9) {
+            char digit = (char) ('0' + (keyCode - KeyEvent.VK_0));
+            handleCharacterDirect(digit, e.isShiftDown());
+        }
+        // Обработка букв
+        else if (keyCode >= KeyEvent.VK_A && keyCode <= KeyEvent.VK_Z) {
+            char baseLetter = (char) ('a' + (keyCode - KeyEvent.VK_A));
+            char letter = e.isShiftDown() ? Character.toUpperCase(baseLetter) : baseLetter;
+            handleCharacterDirect(letter, e.isShiftDown());
+        }
+        // Обработка спецсимволов
+        else if (keyChar != KeyEvent.CHAR_UNDEFINED && keyChar >= 32) {
+            handleCharacterDirect(keyChar, e.isShiftDown());
+        }
+        // Обработка прочих клавиш
+        else {
+            char mappedChar = mapKeyCodeToChar(keyCode, e.isShiftDown());
+            if (mappedChar != 0) {
+                handleCharacterDirect(mappedChar, e.isShiftDown());
+            }
+        }
+
+        Thread.sleep(VIRTUAL_KEY_DELAY);
+    }
+
+    // Упрощенная обработка символов для прямой клавиатуры
+    private void handleCharacterDirect(char keyChar, boolean isShift) throws IOException, InterruptedException {
+        System.out.println("Прямая клавиатура: '" + keyChar + "' (код: " + (int) keyChar + "), shift=" + isShift);
+
+        if (keyChar < 32) {
+            handleControlCharacter(keyChar);
+            return;
+        }
+
+        // Переключение раскладки
+        if (isLayoutSwitchChar(keyChar)) {
+            if (keyChar == 'ё' || keyChar == 'Ё') {
+                handleYoChar(keyChar);
+            } else {
+                sendByte(keyChar);
+                isEnglish = !isEnglish;
+                updateLayoutStatus();
+                Thread.sleep(SWITCH_LAYOUT_DELAY);
+            }
+            return;
+        }
+
+        boolean isRussian = isCyrillic(keyChar);
+        if (isRussian) {
+            if (isEnglish) {
+                switchLayout();
+            }
+            sendRussianChar(keyChar);
+        } else {
+            if (!isEnglish) {
+                switchLayout();
+            }
+
+            char charToSend = keyChar;
+            if (isShift && Character.isLetter(keyChar)) {
+                charToSend = Character.toUpperCase(keyChar);
+            }
+
+            if (charToSend < 128) {
+                sendByte(charToSend);
+            }
+        }
+    }
+
+    // Обновление UI состояния прямой клавиатуры
+    private void updateDirectKeyboardUI() {
+        boolean active = isDirectKeyboardActive.get();
+
+        if (active) {
+            directKeyboardButton.setBackground(new Color(100, 255, 100));
+            directKeyboardButton.setForeground(Color.BLACK);
+            directKeyboardButton.setText("⌨️ Прямая клавиатура (Вкл)");
+            directKeyboardStatusLabel.setText("Вкл");
+            directKeyboardStatusLabel.setForeground(new Color(0, 180, 0));
+        } else {
+            directKeyboardButton.setBackground(new Color(255, 200, 100));
+            directKeyboardButton.setForeground(Color.BLACK);
+            directKeyboardButton.setText("⌨️ Прямая клавиатура");
+            directKeyboardStatusLabel.setText("Выкл");
+            directKeyboardStatusLabel.setForeground(Color.GRAY);
+        }
+    }
+
+    // Временное уведомление
+    private void showTemporaryNotification(String message, int durationMs) {
+        JWindow window = new JWindow(this);
+        JLabel label = new JLabel(message, SwingConstants.CENTER);
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 14f));
+        label.setForeground(Color.WHITE);
+        label.setBackground(new Color(0, 0, 0, 200));
+        label.setOpaque(true);
+        label.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 25));
+
+        window.setLayout(new BorderLayout());
+        window.add(label, BorderLayout.CENTER);
+        window.pack();
+        window.setLocationRelativeTo(this);
+
+        window.setVisible(true);
+
+        Timer timer = new Timer(durationMs, e -> window.dispose());
+        timer.setRepeats(false);
+        timer.start();
     }
 }
