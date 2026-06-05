@@ -45,9 +45,12 @@ public class SettingsManager {
             }
         }
 
-        // Устанавливаем значения по умолчанию, если их нет
         if (getModelPath() == null || getModelPath().isEmpty()) {
             setModelPath(DEFAULT_MODEL_PATH);
+        }
+
+        if (getClientName() == null || getClientName().isEmpty()) {
+            setClientName("Клиент");
         }
     }
 
@@ -65,5 +68,17 @@ public class SettingsManager {
 
     public void setModelPath(String path) {
         properties.setProperty("model.path", path);
+    }
+
+    public String getClientName() {
+        return properties.getProperty("client.name", "Клиент");
+    }
+
+    public void setClientName(String name) {
+        properties.setProperty("client.name", name);
+    }
+
+    public String getDefaultModelPath() {
+        return DEFAULT_MODEL_PATH;
     }
 }

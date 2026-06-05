@@ -30,6 +30,7 @@ public class ConsoleRecognitionWorker {
     private String serverUrl;
     private boolean isSystemAudio;
     private AudioDeviceInfo device;
+    private String clientName;
 
     private Model voskModel;
     private Recognizer recognizer;
@@ -44,11 +45,12 @@ public class ConsoleRecognitionWorker {
     private int totalFinalResults = 0;
 
     public ConsoleRecognitionWorker(String modelPath, int sampleRate, String serverUrl,
-                                    boolean isSystemAudio, AudioDeviceInfo device) {
+                                    boolean isSystemAudio, AudioDeviceInfo device, String clientName) {
         this.modelPath = modelPath;
         this.serverUrl = serverUrl;
         this.isSystemAudio = isSystemAudio;
         this.device = device;
+        this.clientName = clientName;
         this.audioQueue = new LinkedBlockingQueue<>(2000);
         this.isRunning = new AtomicBoolean(false);
     }
@@ -107,7 +109,7 @@ public class ConsoleRecognitionWorker {
                                             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
                                             text = TextPunctuator.addPunctuation(text);
                                             text = TextPunctuator.capitalizeSentences(text);
-                                            text = "[RECOGNIZED]" + text;
+                                            text = "[RECOGNIZED]" + "[" + clientName + "]" + text;
                                             // Вывод в консоль
                                             System.out.println("\n[" + timestamp + "]" + text);
                                             // Отправка на сервер
@@ -122,8 +124,8 @@ public class ConsoleRecognitionWorker {
                                         if (!partialText.isEmpty() && !partialText.equals(lastPartial)) {
                                             lastPartial = partialText;
                                             partialText = TextPunctuator.addPunctuation(partialText);
-                                            System.out.print("\r[PARTIAL] " + partialText);
-                                            sendToServer("[PARTIAL]"+partialText);
+                                            System.out.print("\r[PARTIAL]" + "[" + clientName + "]" + partialText);
+                                            sendToServer("[PARTIAL]"+ "[" + clientName + "]" +partialText);
                                         }
                                     }
                                 }

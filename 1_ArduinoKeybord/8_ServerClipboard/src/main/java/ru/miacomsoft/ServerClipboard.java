@@ -1213,7 +1213,7 @@ public class ServerClipboard {
                 // Если не было partial, просто добавляем сообщение
                 addMessage(finalText);
             }
-
+            
             // Возвращаем null, чтобы не добавлять отдельное сообщение
             return null;
         }

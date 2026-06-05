@@ -6,6 +6,7 @@ import ru.miacomsoft.audio.WindowsSystemAudioCapture;
 import ru.miacomsoft.config.SettingsManager;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.util.List;
 
@@ -15,8 +16,12 @@ public class Main {
     private static AudioCapture audioCapture;
     private static ConsoleRecognitionWorker recognitionWorker;
     private static boolean isRunning = true;
+    private static SettingsManager settings;
 
     public static void main(String[] args) {
+        // Загрузка настроек
+        settings = SettingsManager.getInstance();
+
         // Парсинг аргументов командной строки
         if (args.length > 0) {
             serverUrl = args[0];
@@ -32,17 +37,25 @@ public class Main {
         System.out.println("   Стенограф - Консольная версия");
         System.out.println("========================================");
         System.out.println("Сервер: " + serverUrl);
+        System.out.println("Имя клиента: " + settings.getClientName());
+        System.out.println("Путь к модели: " + settings.getModelPath());
         System.out.println("========================================\n");
 
-        // Загрузка настроек
-        SettingsManager settings = SettingsManager.getInstance();
-        String modelPath = settings.getModelPath();
+        // Проверка модели
+        if (!validateModelPath(settings.getModelPath())) {
+            System.out.println("ВНИМАНИЕ: Путь к модели не указан или не существует!");
+            System.out.println("Пожалуйста, укажите путь к модели Vosk в настройках.\n");
+        }
 
-        System.out.println("Путь к модели: " + modelPath);
-        System.out.println();
-
-        // Выбор режима работы
         showMenu();
+    }
+
+    private static boolean validateModelPath(String modelPath) {
+        if (modelPath == null || modelPath.isEmpty()) {
+            return false;
+        }
+        File modelDir = new File(modelPath);
+        return modelDir.exists() && modelDir.isDirectory();
     }
 
     private static void showMenu() {
@@ -50,11 +63,12 @@ public class Main {
 
         while (isRunning) {
             System.out.println("\n========================================");
-            System.out.println("Выберите источник звука:");
-            System.out.println("1. Микрофон (выбрать устройство)");
-            System.out.println("2. Системный звук (Stereo Mix)");
+            System.out.println("Выберите действие:");
+            System.out.println("1. Запуск с микрофона");
+            System.out.println("2. Запуск с системного звука (Stereo Mix)");
             System.out.println("3. Список доступных микрофонов");
-            System.out.println("4. Изменить адрес сервера (текущий: " + serverUrl + ")");
+            System.out.println("4. Настройки");
+            System.out.println("5. Изменить адрес сервера (текущий: " + serverUrl + ")");
             System.out.println("0. Выход");
             System.out.print("> ");
 
@@ -73,6 +87,9 @@ public class Main {
                         listMicrophones();
                         break;
                     case "4":
+                        showSettingsMenu(reader);
+                        break;
+                    case "5":
                         changeServerUrl(reader);
                         break;
                     case "0":
@@ -87,6 +104,82 @@ public class Main {
                 System.err.println("Ошибка: " + e.getMessage());
             }
         }
+    }
+
+    private static void showSettingsMenu(BufferedReader reader) {
+        while (true) {
+            System.out.println("\n========================================");
+            System.out.println("НАСТРОЙКИ");
+            System.out.println("========================================");
+            System.out.println("1. Имя клиента: " + settings.getClientName());
+            System.out.println("2. Путь к модели Vosk: " + settings.getModelPath());
+            System.out.println("3. Сбросить путь к модели по умолчанию");
+            System.out.println("0. Назад");
+            System.out.print("> ");
+
+            try {
+                String choice = reader.readLine();
+                if (choice == null) break;
+
+                switch (choice.trim()) {
+                    case "1":
+                        changeClientName(reader);
+                        break;
+                    case "2":
+                        changeModelPath(reader);
+                        break;
+                    case "3":
+                        resetModelPath();
+                        break;
+                    case "0":
+                        return;
+                    default:
+                        System.out.println("Неверный выбор.");
+                }
+            } catch (Exception e) {
+                System.err.println("Ошибка: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void changeClientName(BufferedReader reader) {
+        System.out.print("Введите новое имя клиента (будет добавляться в начало сообщений): ");
+        try {
+            String newName = reader.readLine();
+            if (newName != null && !newName.trim().isEmpty()) {
+                settings.setClientName(newName.trim());
+                settings.saveSettings();
+                System.out.println("✅ Имя клиента сохранено: " + newName.trim());
+            }
+        } catch (Exception e) {
+            System.err.println("Ошибка: " + e.getMessage());
+        }
+    }
+
+    private static void changeModelPath(BufferedReader reader) {
+        System.out.print("Введите полный путь к папке с моделью Vosk: ");
+        try {
+            String newPath = reader.readLine();
+            if (newPath != null && !newPath.trim().isEmpty()) {
+                File modelDir = new File(newPath.trim());
+                if (modelDir.exists() && modelDir.isDirectory()) {
+                    settings.setModelPath(newPath.trim());
+                    settings.saveSettings();
+                    System.out.println("✅ Путь к модели сохранен: " + newPath.trim());
+                } else {
+                    System.out.println("❌ Ошибка: Папка не существует! Проверьте путь.");
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Ошибка: " + e.getMessage());
+        }
+    }
+
+    private static void resetModelPath() {
+        String defaultPath = settings.getDefaultModelPath();
+        settings.setModelPath(defaultPath);
+        settings.saveSettings();
+        System.out.println("✅ Путь к модели сброшен на значение по умолчанию: " + defaultPath);
     }
 
     private static void listMicrophones() {
@@ -143,40 +236,58 @@ public class Main {
     }
 
     private static void startMicrophoneCapture(AudioDeviceInfo device) {
-        stopRecognition();
+        if (!validateModelPath(settings.getModelPath())) {
+            System.out.println("\n❌ Ошибка: Путь к модели не указан или не существует!");
+            System.out.println("Пожалуйста, укажите путь к модели в настройках (пункт 4 меню).");
+            System.out.println("\nНажмите Enter для возврата в меню...");
+            try {
+                System.in.read();
+            } catch (Exception e) {}
+            return;
+        }
 
-        SettingsManager settings = SettingsManager.getInstance();
-        String modelPath = settings.getModelPath();
+        stopRecognition();
 
         System.out.println("\n========================================");
         System.out.println("Запуск распознавания с микрофона");
         System.out.println("Устройство: " + device.getName());
+        System.out.println("Имя клиента: " + settings.getClientName());
         System.out.println("Сервер: " + serverUrl);
         System.out.println("========================================");
         System.out.println("Говорите... (Ctrl+C для остановки)");
         System.out.println("----------------------------------------\n");
 
         recognitionWorker = new ConsoleRecognitionWorker(
-                modelPath,
+                settings.getModelPath(),
                 SAMPLE_RATE,
                 serverUrl,
                 false,
-                device
+                device,
+                settings.getClientName()
         );
 
         recognitionWorker.start();
-
-        // Ожидание остановки
         waitForStop();
     }
 
     private static void startSystemAudioCapture() {
+        if (!validateModelPath(settings.getModelPath())) {
+            System.out.println("\n❌ Ошибка: Путь к модели не указан или не существует!");
+            System.out.println("Пожалуйста, укажите путь к модели в настройках (пункт 4 меню).");
+            System.out.println("\nНажмите Enter для возврата в меню...");
+            try {
+                System.in.read();
+            } catch (Exception e) {}
+            return;
+        }
+
         stopRecognition();
 
         String osName = System.getProperty("os.name").toLowerCase();
 
         System.out.println("\n========================================");
         System.out.println("Запуск распознавания системного звука");
+        System.out.println("Имя клиента: " + settings.getClientName());
         System.out.println("Сервер: " + serverUrl);
         System.out.println("========================================");
 
@@ -205,7 +316,6 @@ public class Main {
             selectedDevice = devices.get(0);
             System.out.println("\n✅ Найден Stereo Mix: " + selectedDevice.getName());
         } else {
-            // Linux
             String monitor = ru.miacomsoft.audio.SystemAudioCapture.getDefaultMonitor();
             if (monitor == null) {
                 System.out.println("\n❌ Системный монитор не найден!");
@@ -215,25 +325,20 @@ public class Main {
             System.out.println("\n✅ Найден монитор: " + monitor);
         }
 
-        SettingsManager settings = SettingsManager.getInstance();
-        String modelPath = settings.getModelPath();
-
-        System.out.println("Сервер: " + serverUrl);
         System.out.println("========================================");
         System.out.println("Говорите... (Ctrl+C для остановки)");
         System.out.println("----------------------------------------\n");
 
         recognitionWorker = new ConsoleRecognitionWorker(
-                modelPath,
+                settings.getModelPath(),
                 SAMPLE_RATE,
                 serverUrl,
                 true,
-                selectedDevice
+                selectedDevice,
+                settings.getClientName()
         );
 
         recognitionWorker.start();
-
-        // Ожидание остановки
         waitForStop();
     }
 
