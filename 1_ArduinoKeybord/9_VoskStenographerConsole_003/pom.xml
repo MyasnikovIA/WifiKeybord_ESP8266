@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>ru.tmis.analyzer</groupId>
+    <artifactId>VoskStenographerConsole_003</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    <dependencies>
+        <!-- Vosk API -->
+        <dependency>
+            <groupId>com.alphacephei</groupId>
+            <artifactId>vosk</artifactId>
+            <version>0.3.45</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/vosk-0.3.45.jar</systemPath>
+        </dependency>
+
+        <!-- JNA - локальная версия -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/jna-5.13.0.jar</systemPath>
+        </dependency>
+
+        <!-- JSON -->
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>20231013</version>
+        </dependency>
+        <!--
+        <dependency>
+             <groupId>com.intel.analytics.zoo</groupId>
+             <artifactId>analytics-zoo-bigdl_0.13.0</artifactId>
+             <version>0.13.0</version>
+         </dependency>
+         -->
+    </dependencies>
+</project>
