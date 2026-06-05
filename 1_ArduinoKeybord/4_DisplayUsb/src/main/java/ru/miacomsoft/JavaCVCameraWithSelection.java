@@ -44,7 +44,7 @@ public class JavaCVCameraWithSelection {
 
     private static final Object cameraLock = new Object();
     private static Thread cameraThread = null;
-
+    private static SelectionOverlay overlay = null;
 
     // Класс для хранения информации об устройстве
     private static class DeviceInfo {
@@ -522,14 +522,25 @@ public class JavaCVCameraWithSelection {
     private static void addMouseListenersToCanvas(CanvasFrame canvasFrame) {
         if (canvasFrame == null) return;
 
-        Component canvasComponent = canvasFrame.getCanvas();
+        // Создаем и добавляем прозрачную панель поверх видео
+        overlay = new SelectionOverlay();
 
-        canvasComponent.addMouseListener(new MouseAdapter() {
+        // Получаем внутренний компонент CanvasFrame
+        Component canvasComp = canvasFrame.getCanvas();
+
+        // Устанавливаем LayoutManager для canvasComp
+        if (canvasComp instanceof JComponent) {
+            ((JComponent) canvasComp).setLayout(new BorderLayout());
+            ((JComponent) canvasComp).add(overlay, BorderLayout.CENTER);
+        }
+
+        canvasComp.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.getButton() == MouseEvent.BUTTON1) {
                     selectionStart = e.getPoint();
                     isSelecting = true;
+                    overlay.setSelectionStart(e.getPoint());
                     updateStatus("Начало выделения области");
                 }
             }
@@ -540,29 +551,37 @@ public class JavaCVCameraWithSelection {
                     selectionEnd = e.getPoint();
                     isSelecting = false;
 
-                    // Копируем выделенную область в буфер обмена
-                    copySelectionToClipboard();
+                    // Копируем выделенную область
+                    copySelectionToClipboardWithOverlay();
 
                     // Очищаем выделение через 500 мс
-                    Timer clearTimer = new Timer(500, evt -> clearSelection());
+                    Timer clearTimer = new Timer(500, evt -> {
+                        clearSelection();
+                        if (overlay != null) {
+                            overlay.clearSelection();
+                        }
+                    });
                     clearTimer.setRepeats(false);
                     clearTimer.start();
                 }
             }
         });
 
-        canvasComponent.addMouseMotionListener(new MouseMotionAdapter() {
+        canvasComp.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseDragged(MouseEvent e) {
                 if (isSelecting && selectionStart != null) {
                     selectionEnd = e.getPoint();
+                    if (overlay != null) {
+                        overlay.setSelectionEnd(e.getPoint());
+                    }
                 }
             }
         });
     }
 
     private static Frame drawSelectionRectangle(Frame originalFrame) {
-        if (selectionStart == null || selectionEnd == null) {
+        if (selectionStart == null || selectionEnd == null || canvas == null) {
             return originalFrame;
         }
 
@@ -570,24 +589,33 @@ public class JavaCVCameraWithSelection {
             Java2DFrameConverter converter = new Java2DFrameConverter();
             BufferedImage image = converter.getBufferedImage(originalFrame);
 
+            // Пересчитываем координаты из исходного изображения в координаты окна
+            Point startInCanvas = convertImageToCanvasCoords(selectionStart);
+            Point endInCanvas = convertImageToCanvasCoords(selectionEnd);
+
+            if (startInCanvas == null || endInCanvas == null) {
+                return originalFrame;
+            }
+
             Graphics2D g2d = image.createGraphics();
             g2d.setColor(Color.RED);
             g2d.setStroke(new BasicStroke(2));
 
-            int x = Math.min(selectionStart.x, selectionEnd.x);
-            int y = Math.min(selectionStart.y, selectionEnd.y);
-            int width = Math.abs(selectionEnd.x - selectionStart.x);
-            int height = Math.abs(selectionEnd.y - selectionStart.y);
+            int x = Math.min(startInCanvas.x, endInCanvas.x);
+            int y = Math.min(startInCanvas.y, endInCanvas.y);
+            int width = Math.abs(endInCanvas.x - startInCanvas.x);
+            int height = Math.abs(endInCanvas.y - startInCanvas.y);
 
             g2d.drawRect(x, y, width, height);
 
-            // Добавляем текст с размерами
+            // Добавляем текст с размерами (в пикселях исходного изображения)
             g2d.setFont(new Font("Arial", Font.BOLD, 14));
-            String sizeText = width + "x" + height;
+            int srcWidth = Math.abs(selectionEnd.x - selectionStart.x);
+            int srcHeight = Math.abs(selectionEnd.y - selectionStart.y);
+            String sizeText = srcWidth + "x" + srcHeight;
             g2d.drawString(sizeText, x + 5, y + height - 5);
 
             g2d.dispose();
-
             return converter.convert(image);
 
         } catch (Exception e) {
@@ -596,6 +624,46 @@ public class JavaCVCameraWithSelection {
         }
     }
 
+
+    private static Point convertMouseToImageCoords(Point mousePoint, CanvasFrame canvasFrame) {
+        if (originalImageSize == null || canvasFrame == null) {
+            return mousePoint;
+        }
+
+        // Получаем актуальную область отображения
+        Rectangle drawArea = getActualDrawArea();
+        if (drawArea == null) return mousePoint;
+
+        // Проверяем, что клик попал в область изображения
+        if (mousePoint.x < drawArea.x || mousePoint.x > drawArea.x + drawArea.width ||
+                mousePoint.y < drawArea.y || mousePoint.y > drawArea.y + drawArea.height) {
+            return null;
+        }
+
+        // Пересчет координат
+        int imageX = (int) (((mousePoint.x - drawArea.x) * (double) originalImageSize.width) / drawArea.width);
+        int imageY = (int) (((mousePoint.y - drawArea.y) * (double) originalImageSize.height) / drawArea.height);
+
+        // Клиппинг к границам
+        imageX = Math.max(0, Math.min(imageX, originalImageSize.width - 1));
+        imageY = Math.max(0, Math.min(imageY, originalImageSize.height - 1));
+
+        return new Point(imageX, imageY);
+    }
+
+    private static Point convertImageToCanvasCoords(Point imagePoint) {
+        if (originalImageSize == null || canvas == null || imagePoint == null) {
+            return null;
+        }
+
+        Rectangle drawArea = getActualDrawArea();
+        if (drawArea == null) return null;
+
+        int canvasX = drawArea.x + (int) (imagePoint.x * (double) drawArea.width / originalImageSize.width);
+        int canvasY = drawArea.y + (int) (imagePoint.y * (double) drawArea.height / originalImageSize.height);
+
+        return new Point(canvasX, canvasY);
+    }
     private static void copySelectionToClipboard() {
         if (selectionStart == null || selectionEnd == null || currentFrame == null) {
             return;
@@ -671,6 +739,9 @@ public class JavaCVCameraWithSelection {
         selectionStart = null;
         selectionEnd = null;
         isSelecting = false;
+        if (overlay != null) {
+            overlay.clearSelection();
+        }
     }
 
     private static Mat adjustContrastAndBrightness(Mat src, float alpha, float beta) {
@@ -731,6 +802,9 @@ public class JavaCVCameraWithSelection {
 
                 // Добавляем обработчики мыши для выделения области
                 addMouseListenersToCanvas(localCanvas);
+
+                // Добавляем обработчик изменения размера окна
+                addResizeListenerToCanvas(localCanvas);
 
                 // Добавляем обработчик клавиш для отмены выделения
                 localCanvas.getCanvas().addKeyListener(new KeyAdapter() {
@@ -841,9 +915,9 @@ public class JavaCVCameraWithSelection {
 
                             // Сохраняем текущий кадр для выделения области
                             currentFrame = converterToBufferedImage.getBufferedImage(processedFrame);
-                            if (originalImageSize == null && currentFrame != null) {
-                                originalImageSize = new Dimension(currentFrame.getWidth(), currentFrame.getHeight());
-                            }
+
+                            // Обновляем размер исходного изображения
+                            updateOriginalImageSize();
 
                             // Если идет выделение области, рисуем прямоугольник
                             if (isSelecting && selectionStart != null && selectionEnd != null && localCanvas != null && localCanvas.isVisible()) {
@@ -919,4 +993,175 @@ public class JavaCVCameraWithSelection {
         cameraThread.setDaemon(true);
         cameraThread.start();
     }
+    private static void addResizeListenerToCanvas(CanvasFrame canvasFrame) {
+        if (canvasFrame == null) return;
+
+        Component canvasComp = canvasFrame.getCanvas();
+        canvasComp.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                // При изменении размера окна просто перерисовываем
+                if (canvas != null && canvas.isVisible()) {
+                    canvas.getCanvas().repaint();
+                    System.out.println("Window resized - redraw");
+                }
+            }
+        });
+    }
+    private static void updateOriginalImageSize() {
+        if (currentFrame != null) {
+            Dimension newSize = new Dimension(currentFrame.getWidth(), currentFrame.getHeight());
+            if (originalImageSize == null || !originalImageSize.equals(newSize)) {
+                originalImageSize = newSize;
+                System.out.println("Размер изображения обновлен: " + originalImageSize.width + "x" + originalImageSize.height);
+                // НЕ очищаем выделение при изменении размера кадра!
+                // Просто пересчитываем координаты
+                if (selectionStart != null && selectionEnd != null) {
+                    // Корректируем выделение, если новый размер меньше старого
+                    selectionStart.x = Math.min(selectionStart.x, originalImageSize.width - 1);
+                    selectionStart.y = Math.min(selectionStart.y, originalImageSize.height - 1);
+                    selectionEnd.x = Math.min(selectionEnd.x, originalImageSize.width - 1);
+                    selectionEnd.y = Math.min(selectionEnd.y, originalImageSize.height - 1);
+                }
+            }
+        }
+    }
+    // Получение фактических размеров отображаемой области
+    private static Rectangle getActualDrawArea() {
+        if (canvas == null || originalImageSize == null) return null;
+
+        Component canvasComp = canvas.getCanvas();
+        int canvasWidth = canvasComp.getWidth();
+        int canvasHeight = canvasComp.getHeight();
+
+        int imageWidth = originalImageSize.width;
+        int imageHeight = originalImageSize.height;
+
+        double canvasRatio = (double) canvasWidth / canvasHeight;
+        double imageRatio = (double) imageWidth / imageHeight;
+
+        int drawWidth, drawHeight;
+        int offsetX = 0, offsetY = 0;
+
+        if (canvasRatio > imageRatio) {
+            drawHeight = canvasHeight;
+            drawWidth = (int) (drawHeight * imageRatio);
+            offsetX = (canvasWidth - drawWidth) / 2;
+        } else {
+            drawWidth = canvasWidth;
+            drawHeight = (int) (drawWidth / imageRatio);
+            offsetY = (canvasHeight - drawHeight) / 2;
+        }
+
+        return new Rectangle(offsetX, offsetY, drawWidth, drawHeight);
+    }
+
+    // Класс для прозрачной панели рисования поверх видео
+    private static class SelectionOverlay extends JPanel {
+        private Point start = null;
+        private Point end = null;
+        private boolean drawing = false;
+
+        public SelectionOverlay() {
+            setOpaque(false);
+            setLayout(null);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (start != null && end != null) {
+                Graphics2D g2d = (Graphics2D) g.create();
+                g2d.setColor(Color.RED);
+                g2d.setStroke(new BasicStroke(2));
+
+                int x = Math.min(start.x, end.x);
+                int y = Math.min(start.y, end.y);
+                int width = Math.abs(end.x - start.x);
+                int height = Math.abs(end.y - start.y);
+
+                g2d.drawRect(x, y, width, height);
+
+                // Показываем размеры
+                g2d.setFont(new Font("Arial", Font.BOLD, 12));
+                g2d.drawString(width + "x" + height, x + 5, y + 15);
+                g2d.dispose();
+            }
+        }
+
+        public void setSelectionStart(Point p) {
+            this.start = p;
+            this.end = p;
+            repaint();
+        }
+
+        public void setSelectionEnd(Point p) {
+            this.end = p;
+            repaint();
+        }
+
+        public void clearSelection() {
+            this.start = null;
+            this.end = null;
+            repaint();
+        }
+
+        public Rectangle getSelectionRect() {
+            if (start == null || end == null) return null;
+            int x = Math.min(start.x, end.x);
+            int y = Math.min(start.y, end.y);
+            int width = Math.abs(end.x - start.x);
+            int height = Math.abs(end.y - start.y);
+            return new Rectangle(x, y, width, height);
+        }
+    }
+    private static void copySelectionToClipboardWithOverlay() {
+        if (overlay == null || currentFrame == null) return;
+
+        Rectangle rect = overlay.getSelectionRect();
+        if (rect == null || rect.width < 10 || rect.height < 10) {
+            updateStatus("Область слишком мала (мин. 10x10)");
+            return;
+        }
+
+        try {
+            // Получаем размеры CanvasFrame
+            Component canvasComp = canvas.getCanvas();
+            int canvasWidth = canvasComp.getWidth();
+            int canvasHeight = canvasComp.getHeight();
+            int imageWidth = currentFrame.getWidth();
+            int imageHeight = currentFrame.getHeight();
+
+            // Пересчитываем координаты с учетом масштаба
+            double scaleX = (double) imageWidth / canvasWidth;
+            double scaleY = (double) imageHeight / canvasHeight;
+
+            int x = (int) (rect.x * scaleX);
+            int y = (int) (rect.y * scaleY);
+            int width = (int) (rect.width * scaleX);
+            int height = (int) (rect.height * scaleY);
+
+            // Проверяем границы
+            x = Math.max(0, Math.min(x, imageWidth - 1));
+            y = Math.max(0, Math.min(y, imageHeight - 1));
+            width = Math.min(width, imageWidth - x);
+            height = Math.min(height, imageHeight - y);
+
+            if (width < 10 || height < 10) {
+                updateStatus("Область слишком мала после масштабирования");
+                return;
+            }
+
+            // Вырезаем и копируем
+            BufferedImage selectedArea = currentFrame.getSubimage(x, y, width, height);
+            copyImageToClipboard(selectedArea);
+
+            updateStatus("Область " + width + "x" + height + " скопирована в буфер");
+
+        } catch (Exception e) {
+            updateStatus("Ошибка при копировании: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
 }

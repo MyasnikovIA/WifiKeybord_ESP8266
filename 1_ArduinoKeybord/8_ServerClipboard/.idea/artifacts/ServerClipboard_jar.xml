@@ -3,6 +3,7 @@
     <output-path>$PROJECT_DIR$/out/artifacts/ServerClipboard_jar</output-path>
     <root id="archive" name="ServerClipboard.jar">
       <element id="module-output" name="ServerClipboard" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/json-20230227.jar" path-in-jar="/" />
     </root>
   </artifact>
 </component>

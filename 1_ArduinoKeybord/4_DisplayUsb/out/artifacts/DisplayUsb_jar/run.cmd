@@ -1,1 +1,1 @@
-java -jar DisplayUsb.jar
+start /min javaw -jar DisplayUsb.jar

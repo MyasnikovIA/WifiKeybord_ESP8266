@@ -1,0 +1,1 @@
+start /min javaw -jar ChromeLauncherApp.jar

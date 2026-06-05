@@ -6,6 +6,7 @@
         <element id="file-copy" path="$PROJECT_DIR$/META-INF/MANIFEST.MF" />
       </element>
       <element id="module-output" name="KeybordWifiClient" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/com/fazecast/jSerialComm/2.10.4/jSerialComm-2.10.4.jar" path-in-jar="/" />
     </root>
   </artifact>
 </component>

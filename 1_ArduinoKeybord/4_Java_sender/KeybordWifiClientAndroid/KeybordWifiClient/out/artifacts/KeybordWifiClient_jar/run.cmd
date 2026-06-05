@@ -1,1 +1,1 @@
-java -jar KeybordWifiClient.jar
+start /min javaw -jar  KeybordWifiClient.jar
