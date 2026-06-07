@@ -1,4 +1,4 @@
-// content.js - Multi-Block Text Copier (минимальная версия с курсором-прицелом)
+// content.js - Multi-Block Text Copier (с поддержкой имени источника)
 (function() {
   'use strict';
 
@@ -8,8 +8,10 @@
     useSendPrefix: true,
     serverAddress: '192.168.15.3:8080',
     autoSend: true,
-    showNotification: false,  // ОТКЛЮЧАЕМ УВЕДОМЛЕНИЯ
-    notificationDuration: 2000
+    showNotification: false,
+    notificationDuration: 2000,
+    // Имя источника (можно изменить на любое другое)
+    authorName: 'ChromeExtension'
   };
 
   // ========== ПЕРЕМЕННЫЕ ДЛЯ РЕЖИМА ВЫБОРА ==========
@@ -74,15 +76,23 @@
     return true;
   }
 
-  // ========== ОТПРАВКА НА СЕРВЕР ==========
+  // ========== ОТПРАВКА НА СЕРВЕР ЧЕРЕЗ POST ЗАПРОС ==========
   function sendToServer(text) {
     if (!text || text.trim() === '') return;
 
-    const encodedText = encodeURIComponent(text);
+    // Формируем сообщение с именем источника для сервера
+    // Используем формат [PARTIAL][Имя]текст для частичных сообщений
+    // или [RECOGNIZED][Имя]текст для финальных
+    const messageWithAuthor = `[RECOGNIZED][${CONFIG.authorName}]${text}`;
+    
+    // Кодируем текст для отправки
+    const encodedText = encodeURIComponent(messageWithAuthor);
     const url = `http://${CONFIG.serverAddress}/?text=${encodedText}`;
 
-    if (isSendConsole) console.log('📡 Отправка на сервер:', url);
+    if (isSendConsole) console.log('📡 Отправка на сервер (GET):', url);
+    if (isSendConsole) console.log(`📡 С именем источника: ${CONFIG.authorName}`);
 
+    // GET запрос (для обратной совместимости)
     fetch(url, {
       method: 'GET',
       mode: 'no-cors',
@@ -90,11 +100,76 @@
       cache: 'no-cache'
     })
     .then(() => {
-      if (isSendConsole) console.log('✅ Запрос отправлен на сервер');
+      if (isSendConsole) console.log('✅ GET запрос отправлен на сервер');
     })
     .catch(error => {
-      if (isSendConsole) console.warn('⚠️ Ошибка отправки:', error.message);
+      if (isSendConsole) console.warn('⚠️ Ошибка отправки GET:', error.message);
     });
+
+    // POST запрос с JSON форматом (основной способ)
+    sendViaPost(text);
+  }
+
+  // ========== ОТПРАВКА ЧЕРЕЗ POST ЗАПРОС (ОСНОВНОЙ СПОСОБ) ==========
+  function sendViaPost(text) {
+    if (!text || text.trim() === '') return;
+
+    const messageWithAuthor = `[RECOGNIZED][${CONFIG.authorName}]${text}`;
+    
+    // Формируем JSON для отправки (поддержка /api/recognize)
+    const jsonData = {
+      type: "final",
+      id: generateId(),
+      text: messageWithAuthor,
+      timestamp: new Date().toLocaleTimeString()
+    };
+
+    const url = `http://${CONFIG.serverAddress}/api/recognize`;
+
+    if (isSendConsole) console.log('📡 POST запрос на:', url);
+    if (isSendConsole) console.log(`📡 С данными:`, jsonData);
+
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(jsonData),
+      mode: 'cors'
+    })
+    .then(response => {
+      if (isSendConsole) console.log('✅ POST запрос отправлен, статус:', response.status);
+    })
+    .catch(error => {
+      if (isSendConsole) console.warn('⚠️ Ошибка POST отправки:', error.message);
+      // Пробуем отправить через GET как fallback
+      sendViaGetFallback(text);
+    });
+  }
+
+  // ========== FALLBACK ОТПРАВКА ЧЕРЕЗ GET ==========
+  function sendViaGetFallback(text) {
+    const messageWithAuthor = `[RECOGNIZED][${CONFIG.authorName}]${text}`;
+    const encodedText = encodeURIComponent(messageWithAuthor);
+    const url = `http://${CONFIG.serverAddress}/?text=${encodedText}`;
+
+    fetch(url, {
+      method: 'GET',
+      mode: 'no-cors',
+      cache: 'no-cache'
+    })
+    .then(() => {
+      if (isSendConsole) console.log('✅ GET fallback отправлен');
+    })
+    .catch(error => {
+      if (isSendConsole) console.warn('⚠️ Ошибка GET fallback:', error.message);
+    });
+  }
+
+  // ========== ГЕНЕРАТОР ID ДЛЯ СООБЩЕНИЙ ==========
+  function generateId() {
+    return 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   }
 
   // ========== РЕЖИМ ВЫБОРА ЭЛЕМЕНТА (ТОЛЬКО КУРСОР) ==========
@@ -437,6 +512,7 @@
       if (isSendConsole) console.log('  - T / Е → копировать блоки');
       if (isSendConsole) console.log('  - R / К → ВКЛЮЧИТЬ РЕЖИМ ВЫБОРА (курсор-прицел)');
       if (isSendConsole) console.log('  - ESC → выключить режим выбора');
+      if (isSendConsole) console.log(`📡 Имя источника: ${CONFIG.authorName}`);
     }
 
     handleKeyDown(event) {
@@ -505,6 +581,7 @@
     window.multiBlockHotkeyManager = new HotkeyManager();
     if (isSendConsole) console.log('🚀 Multi-Block Text Copier готов к работе');
     if (isSendConsole) console.log(`📡 SEND префикс: ${CONFIG.useSendPrefix ? 'ВКЛ' : 'ВЫКЛ'} | Сервер: ${CONFIG.serverAddress}`);
+    if (isSendConsole) console.log(`📡 Имя источника: ${CONFIG.authorName}`);
   }
 
   // ========== ОБРАБОТЧИК СООБЩЕНИЙ ==========

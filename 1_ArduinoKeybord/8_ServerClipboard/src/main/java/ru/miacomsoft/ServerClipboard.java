@@ -46,10 +46,9 @@ public class ServerClipboard {
     private static boolean editMode = false;
     private static JCheckBox editModeCheckbox;
 
-
-    private static String currentPartialId = null;
-    private static String currentPartialText = "";
-
+    // Для хранения partial сообщений по клиентам (ключ: clientName)
+    private static Map<String, String> clientPartialIds = new HashMap<>();
+    private static Map<String, MessageBlock> clientPartialMessages = new HashMap<>();
 
     // Класс для хранения данных кнопки
     private static class CustomButtonData {
@@ -795,6 +794,88 @@ public class ServerClipboard {
         });
     }
 
+    // Метод для обновления частичного сообщения конкретного клиента
+    private static void updatePartialMessageForClient(String clientName, String id, String text, String timestamp) {
+        SwingUtilities.invokeLater(() -> {
+            // Создаем заголовок для клиента
+            String displayText = "[" + clientName + "] " + text;
+
+            MessageBlock existingBlock = clientPartialMessages.get(clientName);
+
+            if (existingBlock != null) {
+                existingBlock.updateText(displayText, timestamp);
+            } else {
+                MessageBlock block = new MessageBlock(displayText, timestamp, true);
+                clientPartialMessages.put(clientName, block);
+                messageBlocks.add(block);
+                messagesPanel.add(block.getPanel());
+
+                JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, messagesPanel);
+                if (scrollPane != null) {
+                    JScrollBar vertical = scrollPane.getVerticalScrollBar();
+                    vertical.setValue(vertical.getMaximum());
+                }
+            }
+
+            messagesPanel.revalidate();
+            messagesPanel.repaint();
+        });
+    }
+
+    // Метод для добавления финального сообщения от клиента
+    private static void addFinalMessageForClient(String clientName, String id, String text, String timestamp) {
+        SwingUtilities.invokeLater(() -> {
+            // Удаляем partial сообщение клиента
+            MessageBlock partialBlock = clientPartialMessages.remove(clientName);
+            if (partialBlock != null) {
+                messageBlocks.remove(partialBlock);
+                messagesPanel.remove(partialBlock.getPanel());
+            }
+
+            // Добавляем финальное сообщение с именем клиента
+            String displayText = "[" + clientName + "] " + text;
+            MessageBlock block = new MessageBlock(displayText, timestamp, false);
+            messageBlocks.add(block);
+            messagesPanel.add(block.getPanel());
+
+            JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, messagesPanel);
+            if (scrollPane != null) {
+                JScrollBar vertical = scrollPane.getVerticalScrollBar();
+                vertical.setValue(vertical.getMaximum());
+            }
+
+            messagesPanel.revalidate();
+            messagesPanel.repaint();
+        });
+    }
+
+    // Метод для добавления обычного сообщения от клиента
+    private static void addMessageForClient(String clientName, String text) {
+        SwingUtilities.invokeLater(() -> {
+            String displayText = "[" + clientName + "] " + text;
+
+            // Проверяем на дубликаты
+            for (MessageBlock block : messageBlocks) {
+                if (block.getText().equals(displayText)) {
+                    System.out.println("Сообщение уже существует: " + displayText);
+                    return;
+                }
+            }
+
+            MessageBlock block = new MessageBlock(displayText);
+            messageBlocks.add(block);
+            messagesPanel.add(block.getPanel());
+            messagesPanel.revalidate();
+            messagesPanel.repaint();
+
+            JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, messagesPanel);
+            if (scrollPane != null) {
+                JScrollBar vertical = scrollPane.getVerticalScrollBar();
+                vertical.setValue(vertical.getMaximum());
+            }
+        });
+    }
+
     private static void addMessage(String text) {
         for (MessageBlock block : messageBlocks) {
             if (block.getText().equals(text)) {
@@ -819,6 +900,8 @@ public class ServerClipboard {
     private static void clearAllMessages() {
         messageBlocks.clear();
         partialMessages.clear();
+        clientPartialIds.clear();
+        clientPartialMessages.clear();
         messagesPanel.removeAll();
         messagesPanel.revalidate();
         messagesPanel.repaint();
@@ -956,6 +1039,18 @@ public class ServerClipboard {
                 if (idToRemove != null) {
                     partialMessages.remove(idToRemove);
                 }
+                // Также проверяем clientPartialMessages
+                String clientToRemove = null;
+                for (Map.Entry<String, MessageBlock> entry : clientPartialMessages.entrySet()) {
+                    if (entry.getValue() == this) {
+                        clientToRemove = entry.getKey();
+                        break;
+                    }
+                }
+                if (clientToRemove != null) {
+                    clientPartialMessages.remove(clientToRemove);
+                    clientPartialIds.remove(clientToRemove);
+                }
             }
             messagesPanel.remove(panel);
             messagesPanel.revalidate();
@@ -1056,7 +1151,7 @@ public class ServerClipboard {
                                 message = rawMessage;
                             }
 
-                            // НОВЫЙ КОД: Обработка partial и recognized сообщений
+                            // Обработка partial и recognized сообщений
                             if (message != null) {
                                 message = processPartialRecognizedMessage(message);
                             }
@@ -1173,48 +1268,86 @@ public class ServerClipboard {
             out.flush();
         }
     }
+
+    // Обработка partial и recognized сообщений с поддержкой разных клиентов
     private static String processPartialRecognizedMessage(String message) {
         if (message == null) return message;
 
-        // Проверяем, начинается ли сообщение с [PARTIAL]
+        // Проверяем формат: [PARTIAL][ИмяКлиента]текст
         if (message.startsWith("[PARTIAL]")) {
-            String partialText = message.substring(9).trim(); // Убираем "[PARTIAL]"
+            // Извлекаем имя клиента и текст
+            String afterPartial = message.substring(9); // Убираем "[PARTIAL]"
 
-            if (currentPartialId == null) {
-                currentPartialId = UUID.randomUUID().toString();
-                currentPartialText = "";
+            String clientName = "";
+            String partialText = afterPartial;
+
+            // Ищем имя клиента в квадратных скобках
+            if (afterPartial.startsWith("[")) {
+                int endBracket = afterPartial.indexOf("]");
+                if (endBracket > 0) {
+                    clientName = afterPartial.substring(1, endBracket);
+                    partialText = afterPartial.substring(endBracket + 1).trim();
+                }
             }
 
-            currentPartialText = partialText;
+            // Если имя клиента не найдено, используем "Unknown"
+            if (clientName.isEmpty()) {
+                clientName = "Unknown";
+            }
 
-            // Обновляем или создаем partial сообщение
-            updatePartialMessage(currentPartialId, currentPartialText,
+            // Получаем или создаем ID для этого клиента
+            String clientId = clientPartialIds.get(clientName);
+            if (clientId == null) {
+                clientId = UUID.randomUUID().toString();
+                clientPartialIds.put(clientName, clientId);
+            }
+
+            // Обновляем или создаем partial сообщение для этого клиента
+            updatePartialMessageForClient(clientName, clientId, partialText,
                     new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()));
 
-            System.out.println("[PARTIAL] Обновление: " + currentPartialText);
+            System.out.println("[PARTIAL] Клиент: " + clientName + " Текст: " + partialText);
 
-            // Возвращаем null, чтобы не добавлять отдельное сообщение
             return null;
         }
-        // Проверяем, начинается ли сообщение с [RECOGNIZED]
+        // Проверяем формат: [RECOGNIZED][ИмяКлиента]текст
         else if (message.startsWith("[RECOGNIZED]")) {
-            String finalText = message.substring(12).trim(); // Убираем "[RECOGNIZED]"
+            // Извлекаем имя клиента и текст
+            String afterRecognized = message.substring(12); // Убираем "[RECOGNIZED]"
 
-            if (currentPartialId != null) {
-                // Заменяем partial сообщение на финальное
-                addFinalMessage(currentPartialId, finalText,
-                        new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()));
-                System.out.println("[RECOGNIZED] Финализация: " + finalText);
+            String clientName = "";
+            String finalText = afterRecognized;
 
-                // Сбрасываем текущую partial
-                currentPartialId = null;
-                currentPartialText = "";
-            } else {
-                // Если не было partial, просто добавляем сообщение
-                addMessage(finalText);
+            // Ищем имя клиента в квадратных скобках
+            if (afterRecognized.startsWith("[")) {
+                int endBracket = afterRecognized.indexOf("]");
+                if (endBracket > 0) {
+                    clientName = afterRecognized.substring(1, endBracket);
+                    finalText = afterRecognized.substring(endBracket + 1).trim();
+                }
             }
-            
-            // Возвращаем null, чтобы не добавлять отдельное сообщение
+
+            // Если имя клиента не найдено, используем "Unknown"
+            if (clientName.isEmpty()) {
+                clientName = "Unknown";
+            }
+
+            String clientId = clientPartialIds.get(clientName);
+
+            if (clientId != null) {
+                // Заменяем partial сообщение на финальное для этого клиента
+                addFinalMessageForClient(clientName, clientId, finalText,
+                        new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()));
+                System.out.println("[RECOGNIZED] Клиент: " + clientName + " Финализация: " + finalText);
+
+                // Очищаем данные клиента
+                clientPartialIds.remove(clientName);
+                clientPartialMessages.remove(clientName);
+            } else {
+                // Если не было partial, просто добавляем сообщение от этого клиента
+                addMessageForClient(clientName, finalText);
+            }
+
             return null;
         }
 
